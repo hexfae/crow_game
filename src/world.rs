@@ -18,11 +18,6 @@ fn setup(
         MeshMaterial3d(materials.add(Color::WHITE)),
     ));
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::from_length(1.0))),
-        MeshMaterial3d(materials.add(Color::BLACK)),
-        Transform::from_translation(Vec3::Y * 0.5),
-    ));
-    commands.spawn((
         DirectionalLight {
             shadows_enabled: true,
             ..default()
