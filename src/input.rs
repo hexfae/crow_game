@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
+use bevy_inspector_egui::bevy_egui::{EguiContext, PrimaryEguiContext};
 
 pub struct InputPlugin;
 
@@ -36,7 +37,14 @@ fn update_cursor(
     mut cursor: ResMut<CommandCursor>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
+    mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
 ) {
+    if let Ok(mut ctx) = egui_contexts.single_mut()
+        && ctx.get_mut().wants_pointer_input()
+    {
+        cursor.world_position = None;
+        return;
+    }
     cursor.world_position = (|| {
         let window = windows.single().ok()?;
         let screen_position = window.cursor_position()?;

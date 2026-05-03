@@ -1,5 +1,6 @@
 use bevy::{platform::collections::HashMap, prelude::*};
 use bevy_enhanced_input::prelude::*;
+use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin};
 
 use crate::{
     crow::{Crow, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
@@ -17,7 +18,8 @@ pub struct SpatialGrid {
     cell_size: f32,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Reflect)]
+#[reflect(Resource)]
 pub struct BoidParams {
     neighbor_radius: f32,
     separation_weight: f32,
@@ -36,6 +38,9 @@ impl Plugin for FlockPlugin {
         app.init_resource::<SpatialGrid>()
             .init_resource::<BoidParams>()
             .init_resource::<DirectedTarget>()
+            .register_type::<BoidParams>()
+            .add_plugins(EguiPlugin::default())
+            .add_plugins(ResourceInspectorPlugin::<BoidParams>::default())
             .add_systems(Startup, setup)
             .add_systems(
                 FixedUpdate,
