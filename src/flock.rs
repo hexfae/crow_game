@@ -1,6 +1,10 @@
 use bevy::{platform::collections::HashMap, prelude::*};
+use bevy_enhanced_input::prelude::*;
 
-use crate::crow::{Crow, CrowSystems, DesiredVelocity, FlockNeighbors, Velocity};
+use crate::{
+    crow::{Crow, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
+    input::{CommandCursor, Direct, Recall},
+};
 
 pub struct FlockPlugin;
 
@@ -24,23 +28,29 @@ pub struct BoidParams {
     pub home_weight: f32,
 }
 
+#[derive(Resource, Default)]
+pub struct DirectedTarget(pub Option<Vec3>);
+
 impl Plugin for FlockPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpatialGrid>()
             .init_resource::<BoidParams>()
+            .init_resource::<DirectedTarget>()
             .add_systems(Startup, setup)
-            .add_systems(Update, visualize_home)
             .add_systems(
                 FixedUpdate,
                 (
-                    move_home_in_circle,
+                    update_home,
+                    visualize_home,
                     rebuild_grid,
                     query_neighbors,
                     boids_steer,
                 )
                     .chain()
                     .in_set(CrowSystems::Steer),
-            );
+            )
+            .add_observer(on_direct)
+            .add_observer(on_recall);
     }
 }
 
@@ -52,19 +62,33 @@ fn setup(
     commands.spawn((
         HomeVisualizer,
         Transform::from_translation(Vec3::ZERO),
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        Mesh3d(meshes.add(Cuboid::from_length(0.1))),
         MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
     ));
 }
 
-fn move_home_in_circle(mut boid_params: ResMut<BoidParams>, time: Res<Time>) {
-    let elapsed = time.elapsed_secs();
-    let position = if elapsed % 12.0 < 8.0 {
-        Vec3::new((elapsed * 2.).sin(), 0.5, elapsed.cos() * 2.) * 5. - Vec3::X * 10.
-    } else {
-        Vec3::new(10.0, 5.0, 0.0)
-    };
-    boid_params.home = position;
+fn update_home(
+    mut boid_params: ResMut<BoidParams>,
+    directed_target: Res<DirectedTarget>,
+    leader: Single<&Transform, With<LeaderCrow>>,
+) {
+    const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
+    let base = directed_target.0.unwrap_or(leader.translation);
+    boid_params.home = base + ALTITUDE_OFFSET;
+}
+
+fn on_direct(
+    _: On<Start<Direct>>,
+    cursor: Res<CommandCursor>,
+    mut directed_target: ResMut<DirectedTarget>,
+) {
+    if let Some(world_position) = cursor.world_position {
+        directed_target.0 = Some(world_position);
+    }
+}
+
+fn on_recall(_: On<Start<Recall>>, mut directed_target: ResMut<DirectedTarget>) {
+    directed_target.0 = None;
 }
 
 fn visualize_home(
@@ -91,7 +115,7 @@ fn query_neighbors(
     spatial_grid: Res<SpatialGrid>,
     boid_params: Res<BoidParams>,
     positions: Query<&Transform, With<Crow>>,
-    mut crows: Query<(Entity, &Transform, &mut FlockNeighbors), With<Crow>>,
+    mut crows: Query<(Entity, &Transform, &mut FlockNeighbors), (With<Crow>, Without<LeaderCrow>)>,
 ) {
     let radius_squared = boid_params.neighbor_radius.powi(2);
     for (own_entity, transform, mut neighbors) in &mut crows {
@@ -130,7 +154,10 @@ fn query_neighbors(
 fn boids_steer(
     boid_params: Res<BoidParams>,
     others: Query<(&Transform, &Velocity), With<Crow>>,
-    mut crows: Query<(&Transform, &Velocity, &FlockNeighbors, &mut DesiredVelocity), With<Crow>>,
+    mut crows: Query<
+        (&Transform, &Velocity, &FlockNeighbors, &mut DesiredVelocity),
+        (With<Crow>, Without<LeaderCrow>),
+    >,
 ) {
     for (transform, velocity, neighbors, mut desired_velocity) in &mut crows {
         let (mut separation_force, mut neighbor_velocity_sum, mut neighbor_position_sum) =
@@ -171,8 +198,8 @@ impl Default for SpatialGrid {
 impl Default for BoidParams {
     fn default() -> Self {
         Self {
-            neighbor_radius: 4.0,
-            separation_weight: 2.0,
+            neighbor_radius: 3.0,
+            separation_weight: 1.0,
             alignment_weight: 1.0,
             cohesion_weight: 1.0,
             max_speed: 10.0,

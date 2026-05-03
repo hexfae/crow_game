@@ -17,6 +17,7 @@ log = { version = "*", features = [
   "release_max_level_warn",
 ] }
 rand = "0.10.1"
+bevy_enhanced_input = "0.24.4"
 
 [features]
 dev = [

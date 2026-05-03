@@ -1,10 +1,15 @@
+#![expect(clippy::type_complexity)]
 use bevy::prelude::*;
 
-use crate::{camera::CameraPlugin, crow::CrowPlugin, flock::FlockPlugin, world::WorldPlugin};
+use crate::{
+    camera::CameraPlugin, crow::CrowPlugin, flock::FlockPlugin, input::InputPlugin,
+    world::WorldPlugin,
+};
 
 mod camera;
 mod crow;
 mod flock;
+mod input;
 mod world;
 
 fn main() {
@@ -15,6 +20,7 @@ fn main() {
             CrowPlugin,
             FlockPlugin,
             WorldPlugin,
+            InputPlugin,
         ))
         .run();
 }
