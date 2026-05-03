@@ -45,7 +45,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     for _ in 0..50 {
         let position = Vec3::new(
             rng.random_range(-5.0..5.),
-            rng.random_range(5.0..10.),
+            rng.random_range(5.0..6.),
             rng.random_range(-5.0..5.),
         );
         let direction = Vec3::new(
@@ -72,7 +72,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             LeaderCrow,
             Player,
             Velocity::default(),
-            Transform::from_scale(Vec3::splat(0.2)),
+            Transform::from_scale(Vec3::splat(0.2)).with_translation(Vec3::Y * 3.),
             SceneRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
             ),
@@ -114,7 +114,8 @@ fn integrate(
         velocity.0 = velocity.0.lerp(desired.0, smoothing);
         transform.translation += velocity.0 * dt;
         if velocity.0.length_squared() > 0.001 {
-            transform.look_to(velocity.0.normalize(), Vec3::Y);
+            let direction = velocity.0.normalize();
+            transform.look_to(direction, Vec3::Y);
         }
     }
 }

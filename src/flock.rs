@@ -28,6 +28,7 @@ pub struct BoidParams {
     max_speed: f32,
     pub home: Vec3,
     pub home_weight: f32,
+    vertical_blend: f32,
 }
 
 #[derive(Resource, Default)]
@@ -183,10 +184,12 @@ fn boids_steer(
         let cohesion_force = neighbor_position_sum / neighbor_count - transform.translation;
         let home_force = (boid_params.home - transform.translation).normalize_or_zero();
 
-        desired_velocity.0 = (separation_force * boid_params.separation_weight
+        let flock_force = (separation_force * boid_params.separation_weight
             + alignment_force * boid_params.alignment_weight
-            + cohesion_force * boid_params.cohesion_weight
-            + home_force * boid_params.home_weight)
+            + cohesion_force * boid_params.cohesion_weight)
+            * Vec3::new(1.0, boid_params.vertical_blend, 1.0);
+
+        desired_velocity.0 = (flock_force + home_force * boid_params.home_weight)
             .clamp_length_max(boid_params.max_speed);
     }
 }
@@ -203,13 +206,14 @@ impl Default for SpatialGrid {
 impl Default for BoidParams {
     fn default() -> Self {
         Self {
-            neighbor_radius: 3.0,
+            neighbor_radius: 8.0,
             separation_weight: 1.0,
-            alignment_weight: 1.0,
-            cohesion_weight: 1.0,
+            alignment_weight: -1.0,
+            cohesion_weight: 2.0,
             max_speed: 10.0,
             home: Vec3::new(0.0, 5.0, 0.0),
             home_weight: 5.0,
+            vertical_blend: 0.1,
         }
     }
 }
