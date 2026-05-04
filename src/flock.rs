@@ -1,6 +1,7 @@
 use bevy::{platform::collections::HashMap, prelude::*};
 use bevy_enhanced_input::prelude::*;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin};
+use rand::seq::IteratorRandom;
 
 use crate::{
     crow::{Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
@@ -61,10 +62,13 @@ fn on_direct(
         .iter()
         .find(|carryable| carryable.0.translation.distance(world_position) < 1.)
     {
-        for mut state in &mut crows {
-            if state.accepts_commands() {
-                *state = CrowState::GrabCarryable(carryable.1);
-            }
+        let mut rng = rand::rng();
+        if let Some(mut state) = crows
+            .iter_mut()
+            .filter(|crow| crow.accepts_commands())
+            .choose(&mut rng)
+        {
+            *state = CrowState::GrabCarryable(carryable.1);
         }
     } else {
         for mut state in &mut crows {
@@ -182,7 +186,7 @@ fn boids_steer(
 
         let neighbor_count = neighbors.0.len().max(1) as f32;
         let (alignment_force, cohesion_force) = match state {
-            CrowState::ReturningToRoost => (Vec3::ZERO, Vec3::ZERO),
+            CrowState::ReturningToRoost | CrowState::GrabCarryable(_) => (Vec3::ZERO, Vec3::ZERO),
             _ => (
                 neighbor_velocity_sum / neighbor_count - velocity.0,
                 neighbor_position_sum / neighbor_count - transform.translation,
