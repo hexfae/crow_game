@@ -4,7 +4,10 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin}
 use rand::seq::IteratorRandom;
 
 use crate::{
-    crow::{Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
+    crow::{
+        Carrying, Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow,
+        Velocity,
+    },
     input::{CommandCursor, Direct, Recall},
     world::{Carryable, Roost},
 };
@@ -52,8 +55,10 @@ impl Plugin for FlockPlugin {
 fn on_direct(
     _: On<Start<Direct>>,
     cursor: Res<CommandCursor>,
-    mut crows: Query<&mut CrowState>,
+    mut free_crows: Query<&mut CrowState, Without<Carrying>>,
+    mut carrying_crows: Query<&mut CrowState, With<Carrying>>,
     carryables: Query<(&Transform, Entity), With<Carryable>>,
+    roost: Single<&Transform, With<Roost>>,
 ) {
     let Some(world_position) = cursor.world_position else {
         return;
@@ -63,15 +68,21 @@ fn on_direct(
         .find(|carryable| carryable.0.translation.distance(world_position) < 1.)
     {
         let mut rng = rand::rng();
-        if let Some(mut state) = crows
+        if let Some(mut state) = free_crows
             .iter_mut()
             .filter(|crow| crow.accepts_commands())
             .choose(&mut rng)
         {
             *state = CrowState::GrabCarryable(carryable.1);
         }
+    } else if roost.translation.distance(world_position) < 1. {
+        for mut state in &mut carrying_crows {
+            if state.accepts_commands() {
+                *state = CrowState::ReturningToRoost;
+            }
+        }
     } else {
-        for mut state in &mut crows {
+        for mut state in free_crows.iter_mut().chain(carrying_crows) {
             if state.accepts_commands() {
                 *state = CrowState::SeekTarget(world_position);
             }
