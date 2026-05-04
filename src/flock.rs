@@ -5,7 +5,7 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin}
 use crate::{
     crow::{Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
     input::{CommandCursor, Direct, Recall},
-    world::Carryable,
+    world::{Carryable, Roost},
 };
 
 const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
@@ -135,6 +135,7 @@ fn boids_steer(
     leader: Single<&Transform, With<LeaderCrow>>,
     others: Query<(&Transform, &Velocity), With<Crow>>,
     carryables: Query<&Transform, With<Carryable>>,
+    roost: Single<&Transform, With<Roost>>,
     mut crows: Query<
         (
             &Transform,
@@ -150,6 +151,7 @@ fn boids_steer(
         let goal = match state {
             CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
+            CrowState::ReturningToRoost => roost.translation,
             CrowState::GrabCarryable(entity) => {
                 if let Ok(carryable) = carryables.get(*entity) {
                     carryable.translation
@@ -172,8 +174,13 @@ fn boids_steer(
         }
 
         let neighbor_count = neighbors.0.len().max(1) as f32;
-        let alignment_force = neighbor_velocity_sum / neighbor_count - velocity.0;
-        let cohesion_force = neighbor_position_sum / neighbor_count - transform.translation;
+        let (alignment_force, cohesion_force) = match state {
+            CrowState::ReturningToRoost => (Vec3::ZERO, Vec3::ZERO),
+            _ => (
+                neighbor_velocity_sum / neighbor_count - velocity.0,
+                neighbor_position_sum / neighbor_count - transform.translation,
+            ),
+        };
         let goal_force = (goal - transform.translation).normalize_or_zero();
 
         let flock_force = (separation_force * boid_params.separation_weight

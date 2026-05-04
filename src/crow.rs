@@ -4,7 +4,7 @@ use rand::RngExt;
 
 use crate::{
     input::{Direct, MoveLeader, Player, Recall},
-    world::Carryable,
+    world::{Carryable, Roost},
 };
 
 pub struct CrowPlugin;
@@ -20,6 +20,7 @@ pub enum CrowState {
     #[default]
     FollowLeader,
     SeekTarget(Vec3),
+    ReturningToRoost,
     GrabCarryable(Entity),
 }
 
@@ -50,7 +51,9 @@ impl Plugin for CrowPlugin {
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
-            (integrate, pickup).chain().in_set(CrowSystems::Integrate),
+            (integrate, pickup, deposit_in_roost)
+                .chain()
+                .in_set(CrowSystems::Integrate),
         )
         .add_observer(move_leader)
         .add_observer(stop_leader);
@@ -146,14 +149,28 @@ fn pickup(
     for mut crow in crows {
         if let CrowState::GrabCarryable(entity) = *crow.0
             && let Ok(carryable) = carryables.get(entity)
-            && carryable.translation.distance(crow.1.translation) < 0.1
+            && carryable.translation.distance(crow.1.translation) < 0.5
         {
             commands.entity(crow.2).insert(Carrying(entity));
             commands
                 .entity(entity)
                 .remove::<Carryable>()
                 .set_parent_in_place(crow.2);
-            *crow.0 = CrowState::FollowLeader;
+            *crow.0 = CrowState::ReturningToRoost;
+        }
+    }
+}
+
+fn deposit_in_roost(
+    mut commands: Commands,
+    crows: Query<(&Transform, &Carrying, &mut CrowState, Entity)>,
+    roost: Single<&Transform, With<Roost>>,
+) {
+    for mut crow in crows {
+        if crow.0.translation.distance(roost.translation) < 1.0 {
+            commands.entity(crow.3).remove::<Carrying>();
+            commands.entity(crow.1.0).despawn();
+            *crow.2 = CrowState::FollowLeader;
         }
     }
 }
