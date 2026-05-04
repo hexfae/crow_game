@@ -12,6 +12,13 @@ pub struct Crow;
 #[derive(Component)]
 pub struct LeaderCrow;
 
+#[derive(Component, Default)]
+pub enum CrowState {
+    #[default]
+    FollowLeader,
+    SeekTarget(Vec3),
+}
+
 #[derive(Default, Component)]
 pub struct Velocity(pub Vec3);
 
@@ -57,6 +64,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
         commands.spawn((
             Crow,
+            CrowState::default(),
             Velocity(direction * 2.0),
             DesiredVelocity::default(),
             FlockNeighbors::default(),

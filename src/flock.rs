@@ -3,14 +3,13 @@ use bevy_enhanced_input::prelude::*;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin};
 
 use crate::{
-    crow::{Crow, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
+    crow::{Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
     input::{CommandCursor, Direct, Recall},
 };
 
-pub struct FlockPlugin;
+const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
 
-#[derive(Component)]
-struct HomeVisualizer;
+pub struct FlockPlugin;
 
 #[derive(Resource)]
 pub struct SpatialGrid {
@@ -26,32 +25,20 @@ pub struct BoidParams {
     alignment_weight: f32,
     cohesion_weight: f32,
     max_speed: f32,
-    pub home: Vec3,
-    pub home_weight: f32,
+    goal_weight: f32,
     vertical_blend: f32,
 }
-
-#[derive(Resource, Default)]
-pub struct DirectedTarget(pub Option<Vec3>);
 
 impl Plugin for FlockPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SpatialGrid>()
             .init_resource::<BoidParams>()
-            .init_resource::<DirectedTarget>()
             .register_type::<BoidParams>()
             .add_plugins(EguiPlugin::default())
             .add_plugins(ResourceInspectorPlugin::<BoidParams>::default())
-            .add_systems(Startup, setup)
             .add_systems(
                 FixedUpdate,
-                (
-                    update_home,
-                    visualize_home,
-                    rebuild_grid,
-                    query_neighbors,
-                    boids_steer,
-                )
+                (rebuild_grid, query_neighbors, boids_steer)
                     .chain()
                     .in_set(CrowSystems::Steer),
             )
@@ -60,48 +47,19 @@ impl Plugin for FlockPlugin {
     }
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        HomeVisualizer,
-        Transform::from_translation(Vec3::ZERO),
-        Mesh3d(meshes.add(Cuboid::from_length(0.1))),
-        MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
-    ));
-}
-
-fn update_home(
-    mut boid_params: ResMut<BoidParams>,
-    directed_target: Res<DirectedTarget>,
-    leader: Single<&Transform, With<LeaderCrow>>,
-) {
-    const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
-    let base = directed_target.0.unwrap_or(leader.translation);
-    boid_params.home = base + ALTITUDE_OFFSET;
-}
-
-fn on_direct(
-    _: On<Start<Direct>>,
-    cursor: Res<CommandCursor>,
-    mut directed_target: ResMut<DirectedTarget>,
-) {
-    if let Some(world_position) = cursor.world_position {
-        directed_target.0 = Some(world_position);
+fn on_direct(_: On<Start<Direct>>, cursor: Res<CommandCursor>, mut crows: Query<&mut CrowState>) {
+    let Some(world_position) = cursor.world_position else {
+        return;
+    };
+    for mut state in &mut crows {
+        *state = CrowState::SeekTarget(world_position);
     }
 }
 
-fn on_recall(_: On<Start<Recall>>, mut directed_target: ResMut<DirectedTarget>) {
-    directed_target.0 = None;
-}
-
-fn visualize_home(
-    boid_params: Res<BoidParams>,
-    mut home_visualizer: Single<&mut Transform, With<HomeVisualizer>>,
-) {
-    home_visualizer.translation = boid_params.home;
+fn on_recall(_: On<Start<Recall>>, mut crows: Query<&mut CrowState>) {
+    for mut state in &mut crows {
+        *state = CrowState::FollowLeader;
+    }
 }
 
 fn rebuild_grid(
@@ -159,13 +117,24 @@ fn query_neighbors(
 
 fn boids_steer(
     boid_params: Res<BoidParams>,
+    leader: Single<&Transform, With<LeaderCrow>>,
     others: Query<(&Transform, &Velocity), With<Crow>>,
     mut crows: Query<
-        (&Transform, &Velocity, &FlockNeighbors, &mut DesiredVelocity),
+        (
+            &Transform,
+            &Velocity,
+            &FlockNeighbors,
+            &CrowState,
+            &mut DesiredVelocity,
+        ),
         (With<Crow>, Without<LeaderCrow>),
     >,
 ) {
-    for (transform, velocity, neighbors, mut desired_velocity) in &mut crows {
+    for (transform, velocity, neighbors, state, mut desired_velocity) in &mut crows {
+        let goal = match state {
+            CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
+            CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
+        };
         let (mut separation_force, mut neighbor_velocity_sum, mut neighbor_position_sum) =
             (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO);
         for &neighbor in &neighbors.0 {
@@ -182,14 +151,14 @@ fn boids_steer(
         let neighbor_count = neighbors.0.len().max(1) as f32;
         let alignment_force = neighbor_velocity_sum / neighbor_count - velocity.0;
         let cohesion_force = neighbor_position_sum / neighbor_count - transform.translation;
-        let home_force = (boid_params.home - transform.translation).normalize_or_zero();
+        let goal_force = (goal - transform.translation).normalize_or_zero();
 
         let flock_force = (separation_force * boid_params.separation_weight
             + alignment_force * boid_params.alignment_weight
             + cohesion_force * boid_params.cohesion_weight)
             * Vec3::new(1.0, boid_params.vertical_blend, 1.0);
 
-        desired_velocity.0 = (flock_force + home_force * boid_params.home_weight)
+        desired_velocity.0 = (flock_force + goal_force * boid_params.goal_weight)
             .clamp_length_max(boid_params.max_speed);
     }
 }
@@ -211,8 +180,7 @@ impl Default for BoidParams {
             alignment_weight: -1.0,
             cohesion_weight: 2.0,
             max_speed: 10.0,
-            home: Vec3::new(0.0, 5.0, 0.0),
-            home_weight: 5.0,
+            goal_weight: 5.0,
             vertical_blend: 0.1,
         }
     }
