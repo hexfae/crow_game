@@ -2,11 +2,12 @@
 use bevy::prelude::*;
 
 use crate::{
-    camera::CameraPlugin, crow::CrowPlugin, flock::FlockPlugin, hud::HudPlugin, input::InputPlugin,
-    world::WorldPlugin,
+    camera::CameraPlugin, cat::CatPlugin, crow::CrowPlugin, flock::FlockPlugin, hud::HudPlugin,
+    input::InputPlugin, world::WorldPlugin,
 };
 
 mod camera;
+mod cat;
 mod crow;
 mod flock;
 mod hud;
@@ -23,6 +24,7 @@ fn main() {
             HudPlugin,
             InputPlugin,
             WorldPlugin,
+            CatPlugin,
         ))
         .run();
 }
