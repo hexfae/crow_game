@@ -19,12 +19,18 @@ struct WalkTo(Vec3);
 #[derive(Component)]
 struct Boredom(Timer);
 
+#[derive(Default, Component)]
+struct MobMeter(f32);
+
+#[derive(Component)]
+struct Scared;
+
 pub struct CatPlugin;
 
 impl Plugin for CatPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (walk, experience_boredom, pounce));
+            .add_systems(Update, (walk, experience_boredom, pounce, get_mobbed));
     }
 }
 
@@ -33,6 +39,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Cat,
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/cat/cat.glb"))),
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
+        MobMeter::default(),
         Transform::from_scale(Vec3::splat(0.6))
             .with_translation(Vec3::new(8., -0.5, -3.))
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
@@ -68,14 +75,17 @@ fn experience_boredom(
                 -0.5,
                 rng.random_range(-1.5..5.5),
             );
-            commands.entity(entity).insert(WalkTo(position));
+            commands
+                .entity(entity)
+                .insert(WalkTo(position))
+                .try_remove::<Scared>();
         }
     }
 }
 
 fn pounce(
     mut commands: Commands,
-    cats: Query<(Entity, &Transform), (With<Cat>, Without<PouncedOn>)>,
+    cats: Query<(Entity, &Transform), (With<Cat>, Without<PouncedOn>, Without<Scared>)>,
     mut crows: Query<
         (
             Entity,
@@ -95,14 +105,14 @@ fn pounce(
             if cat_transform
                 .translation
                 .distance(crow_transform.translation)
-                > 1.0
+                > 1.
             {
                 continue;
             }
             commands
                 .entity(cat_entity)
                 .insert(PouncedOn(crow_entity))
-                .remove::<WalkTo>();
+                .try_remove::<WalkTo>();
             *state = CrowState::CapturedBy(cat_entity);
             crow_transform.translation =
                 cat_transform.translation + (Vec3::Y + *cat_transform.forward()) * 0.6;
@@ -110,6 +120,40 @@ fn pounce(
             velocity.0 = Vec3::ZERO;
             desired.0 = Vec3::ZERO;
             break;
+        }
+    }
+}
+
+fn get_mobbed(
+    mut commands: Commands,
+    cats: Query<(Entity, &Transform, &mut MobMeter, &PouncedOn)>,
+    crows: Query<(&Transform, &CrowState)>,
+    time: Res<Time>,
+) {
+    for (cat_entity, cat_transform, mut mob_meter, pounced_on) in cats {
+        if crows
+            .iter()
+            .filter(|crow| {
+                !matches!(crow.1, CrowState::CapturedBy(_))
+                    && crow.0.translation.distance(cat_transform.translation) < 4.
+            })
+            .count()
+            >= 4
+        {
+            mob_meter.0 += time.delta_secs();
+        } else {
+            mob_meter.0 = (mob_meter.0 - time.delta_secs()).max(0.);
+        }
+        if mob_meter.0 >= 2. {
+            mob_meter.0 = 0.;
+            commands
+                .entity(pounced_on.0)
+                .insert(CrowState::FollowLeader);
+            commands
+                .entity(cat_entity)
+                .remove::<PouncedOn>()
+                .insert(Scared)
+                .insert(WalkTo(Vec3::new(8., -0.5, -3.)));
         }
     }
 }
