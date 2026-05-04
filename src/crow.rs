@@ -198,3 +198,12 @@ fn move_leader(
 fn stop_leader(_: On<Complete<MoveLeader>>, mut leader: Single<&mut Velocity, With<LeaderCrow>>) {
     leader.0 = Vec3::ZERO;
 }
+
+impl CrowState {
+    pub fn accepts_commands(&self) -> bool {
+        matches!(
+            self,
+            Self::FollowLeader | Self::SeekTarget(_) | Self::GrabCarryable(_)
+        )
+    }
+}

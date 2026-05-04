@@ -62,18 +62,24 @@ fn on_direct(
         .find(|carryable| carryable.0.translation.distance(world_position) < 1.)
     {
         for mut state in &mut crows {
-            *state = CrowState::GrabCarryable(carryable.1);
+            if state.accepts_commands() {
+                *state = CrowState::GrabCarryable(carryable.1);
+            }
         }
     } else {
         for mut state in &mut crows {
-            *state = CrowState::SeekTarget(world_position);
+            if state.accepts_commands() {
+                *state = CrowState::SeekTarget(world_position);
+            }
         }
     }
 }
 
 fn on_recall(_: On<Start<Recall>>, mut crows: Query<&mut CrowState>) {
     for mut state in &mut crows {
-        *state = CrowState::FollowLeader;
+        if state.accepts_commands() {
+            *state = CrowState::FollowLeader;
+        }
     }
 }
 
