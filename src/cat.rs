@@ -3,10 +3,15 @@ use std::f32::consts::PI;
 use bevy::prelude::*;
 use rand::RngExt;
 
+use crate::crow::{CrowState, DesiredVelocity, Velocity};
+
 const SPEED: f32 = 5.0;
 
 #[derive(Component)]
 struct Cat;
+
+#[derive(Component)]
+struct PouncedOn(Entity);
 
 #[derive(Component)]
 struct WalkTo(Vec3);
@@ -19,7 +24,7 @@ pub struct CatPlugin;
 impl Plugin for CatPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (walk, experience_boredom));
+            .add_systems(Update, (walk, experience_boredom, pounce));
     }
 }
 
@@ -51,7 +56,7 @@ fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, 
 
 fn experience_boredom(
     mut commands: Commands,
-    cats: Query<(Entity, &mut Boredom), Without<WalkTo>>,
+    cats: Query<(Entity, &mut Boredom), (Without<WalkTo>, Without<PouncedOn>)>,
     time: Res<Time>,
 ) {
     let mut rng = rand::rng();
@@ -64,6 +69,47 @@ fn experience_boredom(
                 rng.random_range(-1.5..5.5),
             );
             commands.entity(entity).insert(WalkTo(position));
+        }
+    }
+}
+
+fn pounce(
+    mut commands: Commands,
+    cats: Query<(Entity, &Transform), (With<Cat>, Without<PouncedOn>)>,
+    mut crows: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut CrowState,
+            &mut Velocity,
+            &mut DesiredVelocity,
+        ),
+        Without<Cat>,
+    >,
+) {
+    for (cat_entity, cat_transform) in cats {
+        for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired) in &mut crows {
+            if let CrowState::CapturedBy(_) = *state {
+                continue;
+            }
+            if cat_transform
+                .translation
+                .distance(crow_transform.translation)
+                > 1.0
+            {
+                continue;
+            }
+            commands
+                .entity(cat_entity)
+                .insert(PouncedOn(crow_entity))
+                .remove::<WalkTo>();
+            *state = CrowState::CapturedBy(cat_entity);
+            crow_transform.translation =
+                cat_transform.translation + (Vec3::Y + *cat_transform.forward()) * 0.6;
+            crow_transform.rotate_local_z(PI / 2.);
+            velocity.0 = Vec3::ZERO;
+            desired.0 = Vec3::ZERO;
+            break;
         }
     }
 }

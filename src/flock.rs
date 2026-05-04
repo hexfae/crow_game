@@ -158,6 +158,7 @@ fn boids_steer(
             CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
             CrowState::ReturningToRoost => roost.translation,
+            CrowState::CapturedBy(_) => continue,
             CrowState::GrabCarryable(entity) => {
                 if let Ok(carryable) = carryables.get(*entity) {
                     carryable.translation

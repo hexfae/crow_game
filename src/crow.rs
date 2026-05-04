@@ -21,6 +21,7 @@ pub enum CrowState {
     FollowLeader,
     SeekTarget(Vec3),
     ReturningToRoost,
+    CapturedBy(Entity),
     GrabCarryable(Entity),
 }
 
@@ -129,11 +130,14 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn integrate(
     time: Res<Time<Fixed>>,
-    mut crows: Query<(&DesiredVelocity, &mut Velocity, &mut Transform), With<Crow>>,
+    mut crows: Query<(&DesiredVelocity, &mut Velocity, &mut Transform, &CrowState), With<Crow>>,
 ) {
     let dt = time.delta_secs();
     let smoothing = (5.0 * dt).min(1.0);
-    for (desired, mut velocity, mut transform) in &mut crows {
+    for (desired, mut velocity, mut transform, state) in &mut crows {
+        if let CrowState::CapturedBy(_) = state {
+            continue;
+        }
         velocity.0 = velocity.0.lerp(desired.0, smoothing);
         transform.translation += velocity.0 * dt;
         if velocity.0.length_squared() > 0.001 {
@@ -172,6 +176,9 @@ fn deposit_in_roost(
     mut score: ResMut<Score>,
 ) {
     for (transform, carrying, mut state, entity) in crows {
+        if let CrowState::CapturedBy(_) = *state {
+            continue;
+        }
         if transform.translation.distance(roost.translation) < 1.0 {
             commands.entity(entity).remove::<Carrying>();
             commands.entity(carrying.0).despawn();
