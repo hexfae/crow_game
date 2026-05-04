@@ -11,6 +11,8 @@ bevy = { version = "0.18.1", default-features = false, features = [
   "bevy_winit",
   "wayland",
   "3d_bevy_render",
+  "bevy_ui_render",
+  "default_font",
 ] }
 log = { version = "*", features = [
   "max_level_debug",

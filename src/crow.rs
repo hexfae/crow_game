@@ -4,7 +4,7 @@ use rand::RngExt;
 
 use crate::{
     input::{Direct, MoveLeader, Player, Recall},
-    world::{Carryable, Roost},
+    world::{Carryable, Roost, Score},
 };
 
 pub struct CrowPlugin;
@@ -165,12 +165,14 @@ fn deposit_in_roost(
     mut commands: Commands,
     crows: Query<(&Transform, &Carrying, &mut CrowState, Entity)>,
     roost: Single<&Transform, With<Roost>>,
+    mut score: ResMut<Score>,
 ) {
     for mut crow in crows {
         if crow.0.translation.distance(roost.translation) < 1.0 {
             commands.entity(crow.3).remove::<Carrying>();
             commands.entity(crow.1.0).despawn();
             *crow.2 = CrowState::FollowLeader;
+            score.0 += 1;
         }
     }
 }

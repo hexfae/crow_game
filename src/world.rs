@@ -9,11 +9,14 @@ pub struct Carryable;
 #[derive(Component)]
 pub struct Roost;
 
+#[derive(Default, Resource)]
+pub struct Score(pub u32);
+
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup);
+        app.add_systems(Startup, setup).init_resource::<Score>();
     }
 }
 
