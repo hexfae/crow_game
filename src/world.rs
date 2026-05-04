@@ -1,4 +1,10 @@
+use std::f32::consts::PI;
+
 use bevy::prelude::*;
+use rand::RngExt;
+
+#[derive(Component)]
+pub struct Carryable;
 
 pub struct WorldPlugin;
 
@@ -24,4 +30,16 @@ fn setup(
         },
         Transform::from_xyz(1., 1., -1.).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+
+    let mut rng = rand::rng();
+    for _ in 0..8 {
+        let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
+        let rotation = rng.random_range(0.0..PI * 2.0);
+        commands.spawn((
+            Mesh3d(meshes.add(Cuboid::new(2., 0.2, 0.5))),
+            MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 0))),
+            Carryable,
+            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
+        ));
+    }
 }

@@ -2,7 +2,10 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use rand::RngExt;
 
-use crate::input::{Direct, MoveLeader, Player, Recall};
+use crate::{
+    input::{Direct, MoveLeader, Player, Recall},
+    world::Carryable,
+};
 
 pub struct CrowPlugin;
 
@@ -17,6 +20,7 @@ pub enum CrowState {
     #[default]
     FollowLeader,
     SeekTarget(Vec3),
+    GrabCarryable(Entity),
 }
 
 #[derive(Default, Component)]
@@ -27,6 +31,9 @@ pub struct DesiredVelocity(pub Vec3);
 
 #[derive(Default, Component)]
 pub struct FlockNeighbors(pub Vec<Entity>);
+
+#[derive(Component)]
+pub struct Carrying(Entity);
 
 #[derive(SystemSet, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum CrowSystems {
@@ -41,7 +48,10 @@ impl Plugin for CrowPlugin {
             (CrowSystems::Steer, CrowSystems::Integrate).chain(),
         )
         .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, integrate.in_set(CrowSystems::Integrate))
+        .add_systems(
+            FixedUpdate,
+            (integrate, pickup).chain().in_set(CrowSystems::Integrate),
+        )
         .add_observer(move_leader)
         .add_observer(stop_leader);
     }
@@ -124,6 +134,26 @@ fn integrate(
         if velocity.0.length_squared() > 0.001 {
             let direction = velocity.0.normalize();
             transform.look_to(direction, Vec3::Y);
+        }
+    }
+}
+
+fn pickup(
+    mut commands: Commands,
+    crows: Query<(&mut CrowState, &Transform, Entity)>,
+    carryables: Query<&Transform, With<Carryable>>,
+) {
+    for mut crow in crows {
+        if let CrowState::GrabCarryable(entity) = *crow.0
+            && let Ok(carryable) = carryables.get(entity)
+            && carryable.translation.distance(crow.1.translation) < 0.1
+        {
+            commands.entity(crow.2).insert(Carrying(entity));
+            commands
+                .entity(entity)
+                .remove::<Carryable>()
+                .set_parent_in_place(crow.2);
+            *crow.0 = CrowState::FollowLeader;
         }
     }
 }

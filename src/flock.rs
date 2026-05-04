@@ -5,6 +5,7 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin}
 use crate::{
     crow::{Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow, Velocity},
     input::{CommandCursor, Direct, Recall},
+    world::Carryable,
 };
 
 const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
@@ -38,7 +39,7 @@ impl Plugin for FlockPlugin {
             .add_plugins(ResourceInspectorPlugin::<BoidParams>::default())
             .add_systems(
                 FixedUpdate,
-                (rebuild_grid, query_neighbors, boids_steer)
+                (rebuild_grid, query_neighbors, reset_stale_grab, boids_steer)
                     .chain()
                     .in_set(CrowSystems::Steer),
             )
@@ -47,12 +48,26 @@ impl Plugin for FlockPlugin {
     }
 }
 
-fn on_direct(_: On<Start<Direct>>, cursor: Res<CommandCursor>, mut crows: Query<&mut CrowState>) {
+fn on_direct(
+    _: On<Start<Direct>>,
+    cursor: Res<CommandCursor>,
+    mut crows: Query<&mut CrowState>,
+    carryables: Query<(&Transform, Entity), With<Carryable>>,
+) {
     let Some(world_position) = cursor.world_position else {
         return;
     };
-    for mut state in &mut crows {
-        *state = CrowState::SeekTarget(world_position);
+    if let Some(carryable) = carryables
+        .iter()
+        .find(|carryable| carryable.0.translation.distance(world_position) < 1.)
+    {
+        for mut state in &mut crows {
+            *state = CrowState::GrabCarryable(carryable.1);
+        }
+    } else {
+        for mut state in &mut crows {
+            *state = CrowState::SeekTarget(world_position);
+        }
     }
 }
 
@@ -119,6 +134,7 @@ fn boids_steer(
     boid_params: Res<BoidParams>,
     leader: Single<&Transform, With<LeaderCrow>>,
     others: Query<(&Transform, &Velocity), With<Crow>>,
+    carryables: Query<&Transform, With<Carryable>>,
     mut crows: Query<
         (
             &Transform,
@@ -134,6 +150,13 @@ fn boids_steer(
         let goal = match state {
             CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
+            CrowState::GrabCarryable(entity) => {
+                if let Ok(carryable) = carryables.get(*entity) {
+                    carryable.translation
+                } else {
+                    continue;
+                }
+            }
         };
         let (mut separation_force, mut neighbor_velocity_sum, mut neighbor_position_sum) =
             (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO);
@@ -160,6 +183,16 @@ fn boids_steer(
 
         desired_velocity.0 = (flock_force + goal_force * boid_params.goal_weight)
             .clamp_length_max(boid_params.max_speed);
+    }
+}
+
+fn reset_stale_grab(mut crows: Query<&mut CrowState>, carryables: Query<(), With<Carryable>>) {
+    for mut state in &mut crows {
+        if let CrowState::GrabCarryable(entity) = *state
+            && carryables.get(entity).is_err()
+        {
+            *state = CrowState::FollowLeader;
+        }
     }
 }
 
