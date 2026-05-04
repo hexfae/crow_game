@@ -7,7 +7,7 @@ use crate::{
     world::{Carryable, Roost, Score},
 };
 
-pub struct CrowPlugin;
+const LEADER_SPEED: f32 = 4.0;
 
 #[derive(Component)]
 pub struct Crow;
@@ -41,6 +41,8 @@ pub enum CrowSystems {
     Steer,
     Integrate,
 }
+
+pub struct CrowPlugin;
 
 impl Plugin for CrowPlugin {
     fn build(&self, app: &mut App) {
@@ -146,17 +148,19 @@ fn pickup(
     crows: Query<(&mut CrowState, &Transform, Entity)>,
     carryables: Query<&Transform, With<Carryable>>,
 ) {
-    for mut crow in crows {
-        if let CrowState::GrabCarryable(entity) = *crow.0
-            && let Ok(carryable) = carryables.get(entity)
-            && carryable.translation.distance(crow.1.translation) < 0.5
+    for (mut state, transform, crow_entity) in crows {
+        if let CrowState::GrabCarryable(carryable_entity) = *state
+            && let Ok(carryable) = carryables.get(carryable_entity)
+            && carryable.translation.distance(transform.translation) < 0.5
         {
-            commands.entity(crow.2).insert(Carrying(entity));
             commands
-                .entity(entity)
+                .entity(crow_entity)
+                .insert(Carrying(carryable_entity));
+            commands
+                .entity(carryable_entity)
                 .remove::<Carryable>()
-                .set_parent_in_place(crow.2);
-            *crow.0 = CrowState::ReturningToRoost;
+                .set_parent_in_place(crow_entity);
+            *state = CrowState::ReturningToRoost;
         }
     }
 }
@@ -167,11 +171,11 @@ fn deposit_in_roost(
     roost: Single<&Transform, With<Roost>>,
     mut score: ResMut<Score>,
 ) {
-    for mut crow in crows {
-        if crow.0.translation.distance(roost.translation) < 1.0 {
-            commands.entity(crow.3).remove::<Carrying>();
-            commands.entity(crow.1.0).despawn();
-            *crow.2 = CrowState::FollowLeader;
+    for (transform, carrying, mut state, entity) in crows {
+        if transform.translation.distance(roost.translation) < 1.0 {
+            commands.entity(entity).remove::<Carrying>();
+            commands.entity(carrying.0).despawn();
+            *state = CrowState::FollowLeader;
             score.0 += 1;
         }
     }
@@ -179,27 +183,18 @@ fn deposit_in_roost(
 
 fn move_leader(
     fire: On<Fire<MoveLeader>>,
-    mut leaders: Query<(&mut Transform, &mut Velocity), With<LeaderCrow>>,
+    leader: Single<(&mut Transform, &mut Velocity), With<LeaderCrow>>,
     time: Res<Time>,
 ) {
-    const LEADER_SPEED: f32 = 4.0;
-    let Ok((mut transform, mut velocity)) = leaders.get_mut(fire.context) else {
-        return;
-    };
+    let (mut transform, mut velocity) = leader.into_inner();
     velocity.0 = fire.value * LEADER_SPEED;
     transform.translation += velocity.0 * time.delta_secs();
-    if velocity.0.length_squared() > 0.001 {
+    if velocity.0.length_squared() > 0.01 {
         let direction = velocity.0.normalize();
         transform.look_to(direction, Vec3::Y);
     }
 }
 
-fn stop_leader(
-    complete: On<Complete<MoveLeader>>,
-    mut leaders: Query<&mut Velocity, With<LeaderCrow>>,
-) {
-    let Ok(mut velocity) = leaders.get_mut(complete.context) else {
-        return;
-    };
-    velocity.0 = Vec3::ZERO;
+fn stop_leader(_: On<Complete<MoveLeader>>, mut leader: Single<&mut Velocity, With<LeaderCrow>>) {
+    leader.0 = Vec3::ZERO;
 }

@@ -35,17 +35,17 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 }
 
 fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, time: Res<Time>) {
-    for mut cat in cats {
-        let offset = cat.2.0 - cat.1.translation;
+    for (entity, mut transform, walk_to) in cats {
+        let offset = walk_to.0 - transform.translation;
         let distance = offset.length();
         if distance < 0.1 {
-            commands.entity(cat.0).remove::<WalkTo>();
+            commands.entity(entity).remove::<WalkTo>();
             continue;
         }
         let direction = offset / distance;
         let step = (SPEED * time.delta_secs()).min(distance);
-        cat.1.translation += direction * step;
-        cat.1.look_to(direction, Vec3::Y);
+        transform.translation += direction * step;
+        transform.look_to(direction, Vec3::Y);
     }
 }
 
@@ -55,15 +55,15 @@ fn experience_boredom(
     time: Res<Time>,
 ) {
     let mut rng = rand::rng();
-    for mut cat in cats {
-        cat.1.0.tick(time.delta());
-        if cat.1.0.just_finished() && rng.random_bool(0.5) {
+    for (entity, mut boredom) in cats {
+        boredom.0.tick(time.delta());
+        if boredom.0.just_finished() && rng.random_bool(0.5) {
             let position = Vec3::new(
                 rng.random_range(-1.5..5.5),
                 -0.5,
                 rng.random_range(-1.5..5.5),
             );
-            commands.entity(cat.0).insert(WalkTo(position));
+            commands.entity(entity).insert(WalkTo(position));
         }
     }
 }
