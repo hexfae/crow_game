@@ -172,7 +172,7 @@ fn boids_steer(
         let goal = match state {
             CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
-            CrowState::ReturningToRoost => roost.translation,
+            CrowState::ReturningToRoost | CrowState::RecoveringFromInjury => roost.translation,
             CrowState::CapturedBy(_) => continue,
             CrowState::GrabCarryable(entity) => {
                 if let Ok(carryable) = carryables.get(*entity) {
@@ -197,7 +197,9 @@ fn boids_steer(
 
         let neighbor_count = neighbors.0.len().max(1) as f32;
         let (alignment_force, cohesion_force) = match state {
-            CrowState::ReturningToRoost | CrowState::GrabCarryable(_) => (Vec3::ZERO, Vec3::ZERO),
+            CrowState::ReturningToRoost
+            | CrowState::RecoveringFromInjury
+            | CrowState::GrabCarryable(_) => (Vec3::ZERO, Vec3::ZERO),
             _ => (
                 neighbor_velocity_sum / neighbor_count - velocity.0,
                 neighbor_position_sum / neighbor_count - transform.translation,

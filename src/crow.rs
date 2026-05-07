@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use rand::RngExt;
@@ -21,6 +23,7 @@ pub enum CrowState {
     FollowLeader,
     SeekTarget(Vec3),
     ReturningToRoost,
+    RecoveringFromInjury,
     CapturedBy(Entity),
     GrabCarryable(Entity),
 }
@@ -35,7 +38,10 @@ pub struct DesiredVelocity(pub Vec3);
 pub struct FlockNeighbors(pub Vec<Entity>);
 
 #[derive(Component)]
-pub struct Carrying(Entity);
+pub struct Carrying(pub Entity);
+
+#[derive(Component)]
+pub struct InjuredTimer(Timer);
 
 #[derive(SystemSet, Debug, Hash, Eq, PartialEq, Clone)]
 pub enum CrowSystems {
@@ -54,7 +60,7 @@ impl Plugin for CrowPlugin {
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
-            (integrate, pickup, deposit_in_roost)
+            (recover_from_injury, integrate, pickup, deposit_in_roost)
                 .chain()
                 .in_set(CrowSystems::Integrate),
         )
@@ -188,6 +194,30 @@ fn deposit_in_roost(
     }
 }
 
+fn recover_from_injury(
+    mut commands: Commands,
+    crows: Query<(Entity, &Transform, &CrowState, &mut InjuredTimer), With<Crow>>,
+    roost: Single<&Transform, With<Roost>>,
+    time: Res<Time>,
+) {
+    for (entity, transform, state, mut injured_timer) in crows {
+        if transform.translation.distance(roost.translation) < 1.0 {
+            if !matches!(state, CrowState::RecoveringFromInjury) {
+                commands
+                    .entity(entity)
+                    .insert(CrowState::RecoveringFromInjury);
+            }
+            injured_timer.0.tick(time.delta());
+            if injured_timer.0.just_finished() {
+                commands
+                    .entity(entity)
+                    .remove::<InjuredTimer>()
+                    .insert(CrowState::FollowLeader);
+            }
+        }
+    }
+}
+
 fn move_leader(
     fire: On<Fire<MoveLeader>>,
     leader: Single<(&mut Transform, &mut Velocity), With<LeaderCrow>>,
@@ -212,5 +242,11 @@ impl CrowState {
             self,
             Self::FollowLeader | Self::SeekTarget(_) | Self::GrabCarryable(_)
         )
+    }
+}
+
+impl Default for InjuredTimer {
+    fn default() -> Self {
+        Self(Timer::new(Duration::from_secs(5), TimerMode::Once))
     }
 }

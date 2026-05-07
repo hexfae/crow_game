@@ -1,9 +1,12 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
 use bevy::prelude::*;
 use rand::RngExt;
 
-use crate::crow::{CrowState, DesiredVelocity, Velocity};
+use crate::{
+    crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Velocity},
+    world::Carryable,
+};
 
 const SPEED: f32 = 5.0;
 
@@ -19,6 +22,9 @@ struct WalkTo(Vec3);
 #[derive(Component)]
 struct Boredom(Timer);
 
+#[derive(Component)]
+struct InjureCrowTimer(Timer);
+
 #[derive(Default, Component)]
 struct MobMeter(f32);
 
@@ -29,8 +35,17 @@ pub struct CatPlugin;
 
 impl Plugin for CatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
-            .add_systems(Update, (walk, experience_boredom, pounce, get_mobbed));
+        app.add_systems(Startup, setup).add_systems(
+            Update,
+            (
+                walk,
+                experience_boredom,
+                pounce,
+                get_mobbed,
+                injure_pounced_crow,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -51,7 +66,10 @@ fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, 
         let offset = walk_to.0 - transform.translation;
         let distance = offset.length();
         if distance < 0.1 {
-            commands.entity(entity).remove::<WalkTo>();
+            commands
+                .entity(entity)
+                .remove::<WalkTo>()
+                .try_remove::<Scared>();
             continue;
         }
         let direction = offset / distance;
@@ -75,10 +93,7 @@ fn experience_boredom(
                 -0.5,
                 rng.random_range(-1.5..5.5),
             );
-            commands
-                .entity(entity)
-                .insert(WalkTo(position))
-                .try_remove::<Scared>();
+            commands.entity(entity).insert(WalkTo(position));
         }
     }
 }
@@ -94,12 +109,12 @@ fn pounce(
             &mut Velocity,
             &mut DesiredVelocity,
         ),
-        Without<Cat>,
+        (Without<Cat>, Without<InjuredTimer>),
     >,
 ) {
     for (cat_entity, cat_transform) in cats {
         for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired) in &mut crows {
-            if let CrowState::CapturedBy(_) = *state {
+            if let CrowState::CapturedBy(_) | CrowState::RecoveringFromInjury = *state {
                 continue;
             }
             if cat_transform
@@ -111,7 +126,7 @@ fn pounce(
             }
             commands
                 .entity(cat_entity)
-                .insert(PouncedOn(crow_entity))
+                .insert((PouncedOn(crow_entity), InjureCrowTimer::default()))
                 .try_remove::<WalkTo>();
             *state = CrowState::CapturedBy(cat_entity);
             crow_transform.translation =
@@ -128,6 +143,7 @@ fn get_mobbed(
     mut commands: Commands,
     cats: Query<(Entity, &Transform, &mut MobMeter, &PouncedOn)>,
     crows: Query<(&Transform, &CrowState)>,
+    carrying_query: Query<(), With<Carrying>>,
     time: Res<Time>,
 ) {
     for (cat_entity, cat_transform, mut mob_meter, pounced_on) in cats {
@@ -146,14 +162,49 @@ fn get_mobbed(
         }
         if mob_meter.0 >= 2. {
             mob_meter.0 = 0.;
-            commands
-                .entity(pounced_on.0)
-                .insert(CrowState::FollowLeader);
+            let new_state = if carrying_query.contains(pounced_on.0) {
+                CrowState::ReturningToRoost
+            } else {
+                CrowState::FollowLeader
+            };
+            commands.entity(pounced_on.0).insert(new_state);
             commands
                 .entity(cat_entity)
                 .remove::<PouncedOn>()
                 .insert(Scared)
                 .insert(WalkTo(Vec3::new(8., -0.5, -3.)));
         }
+    }
+}
+
+fn injure_pounced_crow(
+    mut commands: Commands,
+    cats: Query<(Entity, &mut InjureCrowTimer, &PouncedOn), With<Cat>>,
+    crows: Query<&Carrying, With<Crow>>,
+    time: Res<Time>,
+) {
+    for (cat_entity, mut injure_crow_timer, pounced_on) in cats {
+        injure_crow_timer.0.tick(time.delta());
+        if injure_crow_timer.0.just_finished() {
+            commands
+                .entity(cat_entity)
+                .remove::<(InjureCrowTimer, PouncedOn)>();
+            commands
+                .entity(pounced_on.0)
+                .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
+                .try_remove::<Carrying>();
+            if let Ok(carrying) = crows.get(pounced_on.0) {
+                commands
+                    .entity(carrying.0)
+                    .remove_parent_in_place()
+                    .insert(Carryable);
+            }
+        }
+    }
+}
+
+impl Default for InjureCrowTimer {
+    fn default() -> Self {
+        Self(Timer::new(Duration::from_secs(10), TimerMode::Once))
     }
 }
