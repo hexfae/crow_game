@@ -146,7 +146,7 @@ fn pounce(
 fn get_mobbed(
     mut commands: Commands,
     cats: Query<(Entity, &Transform, &mut Mobbable, &PouncedOn)>,
-    crows: Query<(&Transform, &CrowState)>,
+    mut crows: Query<(&Transform, &mut CrowState)>,
     carrying_query: Query<(), With<Carrying>>,
     time: Res<Time>,
 ) {
@@ -177,6 +177,12 @@ fn get_mobbed(
                 .remove::<PouncedOn>()
                 .insert(Scared)
                 .insert(WalkTo(Vec3::new(8., -0.5, -3.)));
+            for (_, mut state) in crows
+                .iter_mut()
+                .filter(|(_, state)| **state == CrowState::Mobbing(cat_entity))
+            {
+                *state = CrowState::FollowLeader;
+            }
         }
     }
 }

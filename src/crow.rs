@@ -17,7 +17,7 @@ pub struct Crow;
 #[derive(Component)]
 pub struct LeaderCrow;
 
-#[derive(Component, Default)]
+#[derive(Component, Default, PartialEq)]
 pub enum CrowState {
     #[default]
     FollowLeader,
