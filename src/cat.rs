@@ -110,6 +110,17 @@ fn pounce(
     >,
 ) {
     for (cat_entity, cat_transform) in cats {
+        if crows
+            .iter()
+            .filter(|(_, transform, state, _, _)| {
+                !matches!(state, CrowState::CapturedBy(_))
+                    && transform.translation.distance(cat_transform.translation) < 6.
+            })
+            .count()
+            >= 4
+        {
+            continue;
+        }
         for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired) in &mut crows {
             if let CrowState::CapturedBy(_) | CrowState::RecoveringFromInjury = *state {
                 continue;
