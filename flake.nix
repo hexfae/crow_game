@@ -17,7 +17,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
       rustToolchain = fenix.packages.${system}.fromToolchainFile {
         file = ./rust-toolchain.toml;
-        sha256 = "sha256-SlyeOvqko80434lXjyxxZ7Q7GoA9MUfHQXL0LnHkxks=";
+        sha256 = "sha256-ldd6sxKSBy3lQ7VUXUz+gEnellAZnQAS4qUbyZK8sjw=";
       };
       nativeBuildInputs = with pkgs; [
         rustToolchain
