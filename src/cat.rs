@@ -8,6 +8,8 @@ use crate::{
     world::{Carryable, Mobbable},
 };
 
+const CAT_HOME: Vec3 = Vec3::new(5., 0., -5.);
+
 const SPEED: f32 = 5.0;
 
 #[derive(Component)]
@@ -53,7 +55,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
         Mobbable::minimum(4),
         Transform::from_scale(Vec3::splat(0.6))
-            .with_translation(Vec3::new(5., 0., -5.))
+            .with_translation(CAT_HOME)
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
     ));
 }
@@ -176,7 +178,7 @@ fn get_mobbed(
                 .entity(cat_entity)
                 .remove::<PouncedOn>()
                 .insert(Scared)
-                .insert(WalkTo(Vec3::new(8., -0.5, -3.)));
+                .insert(WalkTo(CAT_HOME));
             for (_, mut state) in crows
                 .iter_mut()
                 .filter(|(_, state)| **state == CrowState::Mobbing(cat_entity))
