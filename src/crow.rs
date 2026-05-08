@@ -25,6 +25,7 @@ pub enum CrowState {
     ReturningToRoost,
     RecoveringFromInjury,
     CapturedBy(Entity),
+    Mobbing(Entity),
     GrabCarryable(Entity),
 }
 
@@ -240,7 +241,7 @@ impl CrowState {
     pub fn accepts_commands(&self) -> bool {
         matches!(
             self,
-            Self::FollowLeader | Self::SeekTarget(_) | Self::GrabCarryable(_)
+            Self::FollowLeader | Self::SeekTarget(_) | Self::GrabCarryable(_) | Self::Mobbing(_)
         )
     }
 }

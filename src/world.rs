@@ -7,6 +7,12 @@ use rand::RngExt;
 pub struct Carryable;
 
 #[derive(Component)]
+pub struct Mobbable {
+    /// The minimum amount of crows to intimidate the attacker.
+    pub minimum: usize,
+}
+
+#[derive(Component)]
 pub struct Roost;
 
 #[derive(Default, Resource)]
@@ -54,5 +60,11 @@ fn setup(
             Carryable,
             Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
         ));
+    }
+}
+
+impl Mobbable {
+    pub fn minimum(minimum: usize) -> Self {
+        Self { minimum }
     }
 }

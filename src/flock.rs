@@ -9,7 +9,7 @@ use crate::{
         Velocity,
     },
     input::{CommandCursor, Direct, Recall},
-    world::{Carryable, Roost},
+    world::{Carryable, Mobbable, Roost},
 };
 
 const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
@@ -58,22 +58,34 @@ fn on_direct(
     mut free_crows: Query<&mut CrowState, Without<Carrying>>,
     mut carrying_crows: Query<&mut CrowState, With<Carrying>>,
     carryables: Query<(&Transform, Entity), With<Carryable>>,
+    mobbables: Query<(&Transform, Entity, &Mobbable)>,
     roost: Single<&Transform, With<Roost>>,
 ) {
     let Some(world_position) = cursor.world_position else {
         return;
     };
-    if let Some(carryable) = carryables
+    let mut rng = rand::rng();
+    if let Some((_, entity)) = carryables
         .iter()
-        .find(|carryable| carryable.0.translation.distance(world_position) < 1.)
+        .find(|(transform, _)| transform.translation.distance(world_position) < 1.)
     {
-        let mut rng = rand::rng();
         if let Some(mut state) = free_crows
             .iter_mut()
             .filter(|crow| crow.accepts_commands())
             .choose(&mut rng)
         {
-            *state = CrowState::GrabCarryable(carryable.1);
+            *state = CrowState::GrabCarryable(entity);
+        }
+    } else if let Some((_, entity, mobbable)) = mobbables
+        .iter()
+        .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
+    {
+        for mut crow in free_crows
+            .iter_mut()
+            .filter(|crow| crow.accepts_commands())
+            .sample(&mut rng, mobbable.minimum)
+        {
+            *crow = CrowState::Mobbing(entity);
         }
     } else if roost.translation.distance(world_position) < 1. {
         for mut state in &mut carrying_crows {
@@ -156,6 +168,7 @@ fn boids_steer(
     leader: Single<&Transform, With<LeaderCrow>>,
     others: Query<(&Transform, &Velocity), With<Crow>>,
     carryables: Query<&Transform, With<Carryable>>,
+    mobbables: Query<&Transform, With<Mobbable>>,
     roost: Single<&Transform, With<Roost>>,
     mut crows: Query<
         (
@@ -174,6 +187,13 @@ fn boids_steer(
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
             CrowState::ReturningToRoost | CrowState::RecoveringFromInjury => roost.translation,
             CrowState::CapturedBy(_) => continue,
+            CrowState::Mobbing(entity) => {
+                if let Ok(mobbable) = mobbables.get(*entity) {
+                    mobbable.translation
+                } else {
+                    continue;
+                }
+            }
             CrowState::GrabCarryable(entity) => {
                 if let Ok(carryable) = carryables.get(*entity) {
                     carryable.translation

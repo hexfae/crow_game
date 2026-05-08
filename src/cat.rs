@@ -5,7 +5,7 @@ use rand::RngExt;
 
 use crate::{
     crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Velocity},
-    world::Carryable,
+    world::{Carryable, Mobbable},
 };
 
 const SPEED: f32 = 5.0;
@@ -55,6 +55,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/cat/cat.glb"))),
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
         MobMeter::default(),
+        Mobbable::minimum(4),
         Transform::from_scale(Vec3::splat(0.6))
             .with_translation(Vec3::new(5., -0.5, -5.))
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
