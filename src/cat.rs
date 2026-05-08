@@ -124,7 +124,7 @@ fn pounce(
             if cat_transform
                 .translation
                 .distance(crow_transform.translation)
-                > 1.
+                > 2.
             {
                 continue;
             }
