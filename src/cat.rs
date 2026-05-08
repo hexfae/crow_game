@@ -56,7 +56,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
         MobMeter::default(),
         Transform::from_scale(Vec3::splat(0.6))
-            .with_translation(Vec3::new(8., -0.5, -3.))
+            .with_translation(Vec3::new(5., -0.5, -5.))
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
     ));
 }

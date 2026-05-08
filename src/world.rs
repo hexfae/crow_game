@@ -28,7 +28,6 @@ fn setup(
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(7., 7.)))),
         MeshMaterial3d(materials.add(Color::WHITE)),
-        Transform::from_xyz(2., 0., 2.0),
     ));
     commands.spawn((
         DirectionalLight {
@@ -42,12 +41,12 @@ fn setup(
         Roost,
         Mesh3d(meshes.add(Cuboid::new(2., 0.5, 2.))),
         MeshMaterial3d(materials.add(Color::srgb_u8(150, 75, 0))),
-        Transform::from_xyz(-2.5, 0.25, -2.5),
+        Transform::from_xyz(-4.5, 0.25, -4.5),
     ));
 
     let mut rng = rand::rng();
     for _ in 0..8 {
-        let position = Vec3::new(rng.random_range(-3.0..7.), 0., rng.random_range(-3.0..7.));
+        let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
         let rotation = rng.random_range(0.0..PI * 2.0);
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(2., 0.2, 0.5))),
