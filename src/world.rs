@@ -10,6 +10,8 @@ pub struct Carryable;
 pub struct Mobbable {
     /// The minimum amount of crows to intimidate the attacker.
     pub minimum: usize,
+    /// How long (in seconds) the attacker has been mobbed.
+    pub time: f32,
 }
 
 #[derive(Component)]
@@ -65,6 +67,6 @@ fn setup(
 
 impl Mobbable {
     pub fn minimum(minimum: usize) -> Self {
-        Self { minimum }
+        Self { minimum, time: 0. }
     }
 }

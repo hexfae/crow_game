@@ -25,9 +25,6 @@ struct Boredom(Timer);
 #[derive(Component)]
 struct InjureCrowTimer(Timer);
 
-#[derive(Default, Component)]
-struct MobMeter(f32);
-
 #[derive(Component)]
 struct Scared;
 
@@ -54,7 +51,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Cat,
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/cat/cat.glb"))),
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
-        MobMeter::default(),
         Mobbable::minimum(4),
         Transform::from_scale(Vec3::splat(0.6))
             .with_translation(Vec3::new(5., -0.5, -5.))
@@ -142,12 +138,12 @@ fn pounce(
 
 fn get_mobbed(
     mut commands: Commands,
-    cats: Query<(Entity, &Transform, &mut MobMeter, &PouncedOn)>,
+    cats: Query<(Entity, &Transform, &mut Mobbable, &PouncedOn)>,
     crows: Query<(&Transform, &CrowState)>,
     carrying_query: Query<(), With<Carrying>>,
     time: Res<Time>,
 ) {
-    for (cat_entity, cat_transform, mut mob_meter, pounced_on) in cats {
+    for (cat_entity, cat_transform, mut mobbable, pounced_on) in cats {
         if crows
             .iter()
             .filter(|crow| {
@@ -157,12 +153,12 @@ fn get_mobbed(
             .count()
             >= 4
         {
-            mob_meter.0 += time.delta_secs();
+            mobbable.time += time.delta_secs();
         } else {
-            mob_meter.0 = (mob_meter.0 - time.delta_secs()).max(0.);
+            mobbable.time = (mobbable.time - time.delta_secs()).max(0.);
         }
-        if mob_meter.0 >= 2. {
-            mob_meter.0 = 0.;
+        if mobbable.time >= 2. {
+            mobbable.time = 0.;
             let new_state = if carrying_query.contains(pounced_on.0) {
                 CrowState::ReturningToRoost
             } else {
