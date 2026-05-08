@@ -53,7 +53,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
         Mobbable::minimum(4),
         Transform::from_scale(Vec3::splat(0.6))
-            .with_translation(Vec3::new(5., -0.5, -5.))
+            .with_translation(Vec3::new(5., 0., -5.))
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
     ));
 }
@@ -85,11 +85,7 @@ fn experience_boredom(
     for (entity, mut boredom) in cats {
         boredom.0.tick(time.delta());
         if boredom.0.just_finished() && rng.random_bool(0.5) {
-            let position = Vec3::new(
-                rng.random_range(-1.5..5.5),
-                -0.5,
-                rng.random_range(-1.5..5.5),
-            );
+            let position = Vec3::new(rng.random_range(-1.5..5.5), 0., rng.random_range(-1.5..5.5));
             commands.entity(entity).insert(WalkTo(position));
         }
     }
