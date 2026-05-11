@@ -95,7 +95,7 @@ fn experience_boredom(
 
 fn pounce(
     mut commands: Commands,
-    cats: Query<(Entity, &Transform), (With<Cat>, Without<PouncedOn>, Without<Scared>)>,
+    cats: Query<(Entity, &Transform, &Mobbable), (With<Cat>, Without<PouncedOn>, Without<Scared>)>,
     mut crows: Query<
         (
             Entity,
@@ -107,7 +107,7 @@ fn pounce(
         (Without<Cat>, Without<InjuredTimer>),
     >,
 ) {
-    for (cat_entity, cat_transform) in cats {
+    for (cat_entity, cat_transform, mobbable) in cats {
         if crows
             .iter()
             .filter(|(_, transform, state, _, _)| {
@@ -115,7 +115,7 @@ fn pounce(
                     && transform.translation.distance(cat_transform.translation) < 6.
             })
             .count()
-            >= 4
+            >= mobbable.minimum
         {
             continue;
         }
@@ -160,7 +160,7 @@ fn get_mobbed(
                     && crow.0.translation.distance(cat_transform.translation) < 4.
             })
             .count()
-            >= 4
+            >= mobbable.minimum
         {
             mobbable.time += time.delta_secs();
         } else {
