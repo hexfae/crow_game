@@ -26,7 +26,7 @@ fn watch_leader(
     leader: Single<&Transform, (With<LeaderCrow>, Without<Camera3d>)>,
     time: Res<Time>,
 ) {
-    let offset = leader.translation + Vec3::new(10., 10., 15.);
+    let offset = leader.translation + OFFSET;
     camera
         .translation
         .smooth_nudge(&offset, DECAY_RATE, time.delta_secs());
