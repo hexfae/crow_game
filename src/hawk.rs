@@ -2,7 +2,10 @@ use std::{f32::consts::PI, time::Duration};
 
 use bevy::prelude::*;
 
-use crate::crow::{Crow, CrowState, FlockNeighbors};
+use crate::{
+    crow::{Crow, CrowState, FlockNeighbors},
+    world::UnderCover,
+};
 
 const SOAR_RADIUS: f32 = 10.;
 const SOAR_ALTITUDE: f32 = 10.;
@@ -60,7 +63,7 @@ fn pick_target(
     hawks: Query<(Entity, &Transform, &mut HawkState), With<Hawk>>,
     candidates: Query<
         (Entity, &Transform, &FlockNeighbors, &CrowState),
-        (With<Crow>, Without<Hawk>),
+        (With<Crow>, Without<Hawk>, Without<UnderCover>),
     >,
     time: Res<Time>,
 ) {
@@ -85,11 +88,16 @@ fn pick_target(
                             | CrowState::ReturningToRoost
                     )
             })
-            .min_by(|a, b| {
-                a.1.translation
-                    .distance_squared(hawk_position)
-                    .total_cmp(&b.1.translation.distance_squared(hawk_position))
-            })
+            .min_by(
+                |(_, a_transform, a_neighbors, _), (_, b_transform, b_neighbors, _)| {
+                    a_neighbors.0.len().cmp(&b_neighbors.0.len()).then_with(|| {
+                        a_transform
+                            .translation
+                            .distance_squared(hawk_position)
+                            .total_cmp(&b_transform.translation.distance_squared(hawk_position))
+                    })
+                },
+            )
         else {
             cooldown.reset();
             continue;
