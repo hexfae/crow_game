@@ -26,7 +26,7 @@ pub struct HawkPlugin;
 impl Plugin for HawkPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (soar, dive));
+            .add_systems(Update, (soar, pick_target, dive).chain());
     }
 }
 
@@ -39,17 +39,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn soar(
-    mut commands: Commands,
-    hawks: Query<(Entity, &mut Transform, &mut HawkState), With<Hawk>>,
-    candidates: Query<
-        (Entity, &Transform, &FlockNeighbors, &CrowState),
-        (With<Crow>, Without<Hawk>),
-    >,
-    time: Res<Time>,
-) {
-    for (entity, mut transform, mut state) in hawks {
-        let HawkState::Soaring { phase, cooldown } = &mut *state else {
+fn soar(hawks: Query<(&mut Transform, &mut HawkState), With<Hawk>>, time: Res<Time>) {
+    for (mut transform, mut state) in hawks {
+        let HawkState::Soaring { phase, .. } = &mut *state else {
             continue;
         };
         *phase += time.delta_secs() * SOAR_RATE;
@@ -60,7 +52,22 @@ fn soar(
         );
         transform.look_at(Vec3::Y * SOAR_ALTITUDE, Vec3::Y);
         transform.rotate_y(-PI / 2.);
+    }
+}
 
+fn pick_target(
+    mut commands: Commands,
+    hawks: Query<(Entity, &Transform, &mut HawkState), With<Hawk>>,
+    candidates: Query<
+        (Entity, &Transform, &FlockNeighbors, &CrowState),
+        (With<Crow>, Without<Hawk>),
+    >,
+    time: Res<Time>,
+) {
+    for (entity, transform, mut state) in hawks {
+        let HawkState::Soaring { cooldown, .. } = &mut *state else {
+            continue;
+        };
         cooldown.tick(time.delta());
         if !cooldown.is_finished() {
             continue;
