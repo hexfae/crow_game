@@ -95,7 +95,7 @@ fn on_direct(
         }
     } else {
         for mut state in free_crows.iter_mut().chain(carrying_crows) {
-            if state.accepts_commands() {
+            if state.accepts_commands() && !matches!(*state, CrowState::GrabCarryable(_)) {
                 *state = CrowState::SeekTarget(world_position);
             }
         }
