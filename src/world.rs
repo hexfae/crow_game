@@ -3,13 +3,14 @@ use std::{f32::consts::PI, fmt::Display, time::Duration};
 use bevy::{camera::primitives::Aabb, color::Mix, prelude::*, time::Stopwatch};
 use rand::RngExt;
 
-use crate::crow::Crow;
+use crate::crow::{Crow, InjuredTimer};
 
 const DAY_LENGTH: Duration = Duration::from_mins(10);
 const DUSK_LENGTH: Duration = Duration::from_mins(1);
 const NIGHT_LENGTH: Duration = Duration::from_mins(1);
 const DAY_TO_DUSK_WINDOW: Duration = Duration::from_secs(60);
 const DUSK_TO_NIGHT_WINDOW: Duration = Duration::from_secs(30);
+const NIGHT_TO_RESULTS_WINDOW: Duration = Duration::from_secs(10);
 const DAY_LIGHT: LinearRgba = LinearRgba::WHITE;
 const DUSK_LIGHT: LinearRgba = LinearRgba::new(1.0, 0.25, 0.05, 1.0);
 const NIGHT_LIGHT: LinearRgba = LinearRgba::new(0.02, 0.04, 0.15, 1.0);
@@ -43,6 +44,9 @@ pub struct UnderCover;
 #[derive(Default, Resource)]
 pub struct Score(pub u32);
 
+#[derive(Default, Resource)]
+pub struct Injured(pub u32);
+
 #[derive(States, Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MissionPhase {
     #[default]
@@ -60,11 +64,12 @@ pub struct WorldPlugin;
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
+            .init_resource::<Injured>()
             .init_state::<MissionPhase>()
             .init_resource::<WorldTimer>()
             .insert_resource(ClearColor(Color::from(DAY_SKY)))
             .add_systems(Startup, setup)
-            .add_systems(Update, (pass_time, tint_sun))
+            .add_systems(Update, (pass_time, tint_sun, count_injured))
             .add_systems(FixedUpdate, update_cover);
     }
 }
@@ -177,6 +182,10 @@ fn tint_sun(
     clear_color.0 = Color::from(from_sky.mix(&to_sky, t));
 }
 
+fn count_injured(injuries: Query<(), Added<InjuredTimer>>, mut injured: ResMut<Injured>) {
+    injured.0 += injuries.iter().count() as u32;
+}
+
 fn pass_time(
     state: Res<State<MissionPhase>>,
     mut next_state: ResMut<NextState<MissionPhase>>,
@@ -209,6 +218,17 @@ impl Mobbable {
 }
 
 impl WorldTimer {
+    pub fn night_fade_alpha(&self) -> f32 {
+        let elapsed = self.0.elapsed();
+        let results_at = DAY_LENGTH + DUSK_LENGTH + NIGHT_LENGTH;
+        let fade_start = results_at.saturating_sub(NIGHT_TO_RESULTS_WINDOW);
+        if elapsed <= fade_start {
+            return 0.0;
+        }
+        ((elapsed - fade_start).as_secs_f32() / NIGHT_TO_RESULTS_WINDOW.as_secs_f32())
+            .clamp(0.0, 1.0)
+    }
+
     pub fn remaining_in(&self, phase: MissionPhase) -> Duration {
         let phase_end = match phase {
             MissionPhase::Day => DAY_LENGTH,
