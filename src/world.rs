@@ -1,4 +1,4 @@
-use std::{f32::consts::PI, time::Duration};
+use std::{f32::consts::PI, fmt::Display, time::Duration};
 
 use bevy::{camera::primitives::Aabb, prelude::*, time::Stopwatch};
 use rand::RngExt;
@@ -32,7 +32,7 @@ pub struct UnderCover;
 #[derive(Default, Resource)]
 pub struct Score(pub u32);
 
-#[derive(Default, PartialEq, Resource)]
+#[derive(States, Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MissionPhase {
     #[default]
     Day,
@@ -42,14 +42,14 @@ pub enum MissionPhase {
 }
 
 #[derive(Default, Resource)]
-pub struct WorldTimer(Stopwatch);
+pub struct WorldTimer(pub Stopwatch);
 
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
-            .init_resource::<MissionPhase>()
+            .init_state::<MissionPhase>()
             .init_resource::<WorldTimer>()
             .add_systems(Startup, setup)
             .add_systems(Update, pass_time)
@@ -120,11 +120,12 @@ fn update_cover(
 }
 
 fn pass_time(
-    mut mission_phase: ResMut<MissionPhase>,
+    state: Res<State<MissionPhase>>,
+    mut next_state: ResMut<NextState<MissionPhase>>,
     mut world_timer: ResMut<WorldTimer>,
     time: Res<Time>,
 ) {
-    if *mission_phase == MissionPhase::Results {
+    if *state.get() == MissionPhase::Results {
         return;
     }
     world_timer.0.tick(time.delta());
@@ -138,11 +139,40 @@ fn pass_time(
     } else {
         MissionPhase::Results
     };
-    mission_phase.set_if_neq(new_phase);
+    if *state.get() != new_phase {
+        next_state.set(new_phase);
+    }
 }
 
 impl Mobbable {
     pub fn minimum(minimum: usize) -> Self {
         Self { minimum, time: 0. }
+    }
+}
+
+impl WorldTimer {
+    pub fn remaining_in(&self, phase: MissionPhase) -> Duration {
+        let phase_end = match phase {
+            MissionPhase::Day => DAY_LENGTH,
+            MissionPhase::Dusk => DAY_LENGTH + DUSK_LENGTH,
+            MissionPhase::Night => DAY_LENGTH + DUSK_LENGTH + NIGHT_LENGTH,
+            MissionPhase::Results => return Duration::ZERO,
+        };
+        phase_end.saturating_sub(self.0.elapsed())
+    }
+}
+
+impl Display for MissionPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                MissionPhase::Day => "Day",
+                MissionPhase::Dusk => "Dusk",
+                MissionPhase::Night => "Night",
+                MissionPhase::Results => "Results",
+            }
+        )
     }
 }
