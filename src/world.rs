@@ -1,9 +1,13 @@
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 
-use bevy::{camera::primitives::Aabb, prelude::*};
+use bevy::{camera::primitives::Aabb, prelude::*, time::Stopwatch};
 use rand::RngExt;
 
 use crate::crow::Crow;
+
+const DAY_LENGTH: Duration = Duration::from_mins(10);
+const DUSK_LENGTH: Duration = Duration::from_mins(1);
+const NIGHT_LENGTH: Duration = Duration::from_mins(1);
 
 #[derive(Component)]
 pub struct Carryable;
@@ -28,12 +32,27 @@ pub struct UnderCover;
 #[derive(Default, Resource)]
 pub struct Score(pub u32);
 
+#[derive(Default, PartialEq, Resource)]
+pub enum MissionPhase {
+    #[default]
+    Day,
+    Dusk,
+    Night,
+    Results,
+}
+
+#[derive(Default, Resource)]
+pub struct WorldTimer(Stopwatch);
+
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Score>()
+            .init_resource::<MissionPhase>()
+            .init_resource::<WorldTimer>()
             .add_systems(Startup, setup)
+            .add_systems(Update, pass_time)
             .add_systems(FixedUpdate, update_cover);
     }
 }
@@ -98,6 +117,28 @@ fn update_cover(
             commands.entity(crow_entity).try_remove::<UnderCover>();
         }
     }
+}
+
+fn pass_time(
+    mut mission_phase: ResMut<MissionPhase>,
+    mut world_timer: ResMut<WorldTimer>,
+    time: Res<Time>,
+) {
+    if *mission_phase == MissionPhase::Results {
+        return;
+    }
+    world_timer.0.tick(time.delta());
+    let elapsed = world_timer.0.elapsed();
+    let new_phase = if elapsed < DAY_LENGTH {
+        MissionPhase::Day
+    } else if elapsed < DAY_LENGTH + DUSK_LENGTH {
+        MissionPhase::Dusk
+    } else if elapsed < DAY_LENGTH + DUSK_LENGTH + NIGHT_LENGTH {
+        MissionPhase::Night
+    } else {
+        MissionPhase::Results
+    };
+    mission_phase.set_if_neq(new_phase);
 }
 
 impl Mobbable {
