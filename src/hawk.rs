@@ -10,7 +10,8 @@ use crate::{
 const SOAR_RADIUS: f32 = 10.;
 const SOAR_ALTITUDE: f32 = 10.;
 const SOAR_RATE: f32 = 1.0;
-const SHORT_DIVE_COOLDOWN_SECS: f32 = 5.;
+const DIVE_ABORT_COOLDOWN_SECS: f32 = 3.5;
+const DIVE_MISS_COOLDOWN_SECS: f32 = 6.;
 const DIVE_COOLDOWN_SECS: f32 = 10.;
 const DIVE_SPEED: f32 = 20.;
 const DIVE_ARRIVAL_THRESHOLD: f32 = 0.5;
@@ -141,14 +142,14 @@ fn dive(
             let Ok((_, target_transform, target_state)) = crows.get(*target) else {
                 commands.entity(hawk_entity).insert(HawkState::soar_after(
                     &hawk_transform,
-                    SHORT_DIVE_COOLDOWN_SECS,
+                    DIVE_ABORT_COOLDOWN_SECS,
                 ));
                 continue;
             };
             if under_cover.contains(*target) || !target_state.is_attackable() {
                 commands.entity(hawk_entity).insert(HawkState::soar_after(
                     &hawk_transform,
-                    SHORT_DIVE_COOLDOWN_SECS,
+                    DIVE_ABORT_COOLDOWN_SECS,
                 ));
                 continue;
             }
@@ -171,7 +172,7 @@ fn dive(
             else {
                 commands.entity(hawk_entity).insert(HawkState::soar_after(
                     &hawk_transform,
-                    SHORT_DIVE_COOLDOWN_SECS,
+                    DIVE_MISS_COOLDOWN_SECS,
                 ));
                 continue;
             };
