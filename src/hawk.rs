@@ -10,9 +10,11 @@ use crate::{
 const SOAR_RADIUS: f32 = 10.;
 const SOAR_ALTITUDE: f32 = 10.;
 const SOAR_RATE: f32 = 1.0;
+const SHORT_DIVE_COOLDOWN_SECS: f32 = 5.;
 const DIVE_COOLDOWN_SECS: f32 = 10.;
 const DIVE_SPEED: f32 = 20.;
 const DIVE_ARRIVAL_THRESHOLD: f32 = 0.5;
+const COMMIT_DISTANCE: f32 = 3.0;
 const ISOLATION_NEIGHBOR_LIMIT: usize = 3;
 
 #[derive(Component)]
@@ -20,8 +22,14 @@ struct Hawk;
 
 #[derive(Component)]
 enum HawkState {
-    Soaring { phase: f32, cooldown: Timer },
-    Diving { locked_position: Vec3 },
+    Soaring {
+        phase: f32,
+        cooldown: Timer,
+    },
+    Diving {
+        target: Entity,
+        locked_position: Option<Vec3>,
+    },
 }
 
 pub struct HawkPlugin;
@@ -77,7 +85,7 @@ fn pick_target(
         }
 
         let hawk_position = transform.translation;
-        let Some((_, target_transform, _, _)) = candidates
+        let Some((target_entity, _, _, _)) = candidates
             .iter()
             .filter(|(_, _, neighbors, crow_state)| {
                 neighbors.0.len() <= ISOLATION_NEIGHBOR_LIMIT
@@ -103,33 +111,60 @@ fn pick_target(
             continue;
         };
 
-        commands.entity(entity).insert(HawkState::Diving {
-            locked_position: target_transform.translation,
-        });
+        commands
+            .entity(entity)
+            .insert(HawkState::diving(target_entity));
     }
 }
 
 fn dive(
     mut commands: Commands,
-    hawks: Query<(Entity, &mut Transform, &HawkState), With<Hawk>>,
+    mut hawks: Query<(Entity, &mut Transform, &mut HawkState), With<Hawk>>,
+    crows: Query<(&Transform, &CrowState), (With<Crow>, Without<Hawk>)>,
+    under_cover: Query<(), With<UnderCover>>,
     time: Res<Time>,
 ) {
-    for (entity, mut transform, state) in hawks {
+    for (entity, mut transform, mut state) in &mut hawks {
         let HawkState::Diving {
-            locked_position, ..
-        } = state
+            target,
+            locked_position,
+        } = &mut *state
         else {
             continue;
         };
-        let offset = *locked_position - transform.translation;
+
+        let target_pos = if let Some(pos) = *locked_position {
+            pos
+        } else {
+            let Ok((target_transform, target_state)) = crows.get(*target) else {
+                commands
+                    .entity(entity)
+                    .insert(HawkState::soar_after(&transform, SHORT_DIVE_COOLDOWN_SECS));
+                continue;
+            };
+            if under_cover.contains(*target) || !target_state.is_attackable() {
+                commands
+                    .entity(entity)
+                    .insert(HawkState::soar_after(&transform, SHORT_DIVE_COOLDOWN_SECS));
+                continue;
+            }
+            target_transform.translation
+        };
+
+        let offset = target_pos - transform.translation;
         let distance = offset.length();
+
         if distance < DIVE_ARRIVAL_THRESHOLD {
-            commands.entity(entity).insert(HawkState::Soaring {
-                phase: transform.translation.x.atan2(transform.translation.z),
-                cooldown: Timer::new(Duration::from_secs_f32(DIVE_COOLDOWN_SECS), TimerMode::Once),
-            });
+            commands
+                .entity(entity)
+                .insert(HawkState::soar_after(&transform, DIVE_COOLDOWN_SECS));
             continue;
         }
+
+        if locked_position.is_none() && distance < COMMIT_DISTANCE {
+            *locked_position = Some(target_pos);
+        }
+
         let direction = offset / distance;
         transform.translation += direction * DIVE_SPEED * time.delta_secs();
         transform.look_to(direction, Vec3::Y);
@@ -141,6 +176,20 @@ impl HawkState {
         Self::Soaring {
             phase: 0.,
             cooldown: Timer::new(Duration::from_secs_f32(DIVE_COOLDOWN_SECS), TimerMode::Once),
+        }
+    }
+
+    fn soar_after(transform: &Transform, cooldown_secs: f32) -> Self {
+        Self::Soaring {
+            phase: transform.translation.x.atan2(transform.translation.z),
+            cooldown: Timer::new(Duration::from_secs_f32(cooldown_secs), TimerMode::Once),
+        }
+    }
+
+    fn diving(target: Entity) -> Self {
+        Self::Diving {
+            target,
+            locked_position: None,
         }
     }
 }
