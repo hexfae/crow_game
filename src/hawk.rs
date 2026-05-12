@@ -10,13 +10,15 @@ use crate::{
 const SOAR_RADIUS: f32 = 10.;
 const SOAR_ALTITUDE: f32 = 10.;
 const SOAR_RATE: f32 = 1.0;
-const DIVE_ABORT_COOLDOWN_SECS: f32 = 3.5;
-const DIVE_MISS_COOLDOWN_SECS: f32 = 6.;
-const DIVE_COOLDOWN_SECS: f32 = 10.;
+const DIVE_ABORT_COOLDOWN_SECS: f32 = 5.;
+const DIVE_MISS_COOLDOWN_SECS: f32 = 8.;
+const DIVE_COOLDOWN_SECS: f32 = 12.;
 const DIVE_SPEED: f32 = 20.;
 const DIVE_ARRIVAL_THRESHOLD: f32 = 0.5;
 const COMMIT_DISTANCE: f32 = 3.0;
 const HIT_RADIUS: f32 = 0.5;
+const CLIMB_SPEED: f32 = 10.;
+const CLIMB_ARRIVAL_THRESHOLD: f32 = 0.5;
 const ISOLATION_NEIGHBOR_LIMIT: usize = 3;
 
 #[derive(Component)]
@@ -32,6 +34,10 @@ enum HawkState {
         target: Entity,
         locked_position: Option<Vec3>,
     },
+    Climbing {
+        target: Vec3,
+        cooldown: Timer,
+    },
 }
 
 pub struct HawkPlugin;
@@ -39,7 +45,7 @@ pub struct HawkPlugin;
 impl Plugin for HawkPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (soar, pick_target, dive).chain());
+            .add_systems(Update, (soar, pick_target, dive, climb).chain());
     }
 }
 
@@ -140,14 +146,14 @@ fn dive(
             pos
         } else {
             let Ok((_, target_transform, target_state)) = crows.get(*target) else {
-                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                commands.entity(hawk_entity).insert(HawkState::climb_after(
                     &hawk_transform,
                     DIVE_ABORT_COOLDOWN_SECS,
                 ));
                 continue;
             };
             if under_cover.contains(*target) || !target_state.is_attackable() {
-                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                commands.entity(hawk_entity).insert(HawkState::climb_after(
                     &hawk_transform,
                     DIVE_ABORT_COOLDOWN_SECS,
                 ));
@@ -170,7 +176,7 @@ fn dive(
                         < HIT_RADIUS
                 })
             else {
-                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                commands.entity(hawk_entity).insert(HawkState::climb_after(
                     &hawk_transform,
                     DIVE_MISS_COOLDOWN_SECS,
                 ));
@@ -178,7 +184,7 @@ fn dive(
             };
             commands
                 .entity(hawk_entity)
-                .insert(HawkState::soar_after(&hawk_transform, DIVE_COOLDOWN_SECS));
+                .insert(HawkState::climb_after(&hawk_transform, DIVE_COOLDOWN_SECS));
             commands
                 .entity(crow_entity)
                 .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
@@ -202,6 +208,33 @@ fn dive(
     }
 }
 
+fn climb(
+    mut commands: Commands,
+    hawks: Query<(Entity, &mut Transform, &mut HawkState), With<Hawk>>,
+    time: Res<Time>,
+) {
+    for (entity, mut transform, mut state) in hawks {
+        let HawkState::Climbing { target, cooldown } = &mut *state else {
+            continue;
+        };
+        cooldown.tick(time.delta());
+        let offset = *target - transform.translation;
+        let distance = offset.length();
+        if distance < CLIMB_ARRIVAL_THRESHOLD {
+            commands.entity(entity).insert(HawkState::Soaring {
+                phase: target.x.atan2(target.z),
+                cooldown: Timer::new(cooldown.remaining(), TimerMode::Once),
+            });
+            continue;
+        }
+        let direction = offset / distance;
+        transform.translation += direction * CLIMB_SPEED * time.delta_secs();
+        if direction.xz().length_squared() > 0.001 {
+            transform.look_to(direction, Vec3::Y);
+        }
+    }
+}
+
 impl HawkState {
     fn soaring() -> Self {
         Self::Soaring {
@@ -210,9 +243,19 @@ impl HawkState {
         }
     }
 
-    fn soar_after(transform: &Transform, cooldown_secs: f32) -> Self {
-        Self::Soaring {
-            phase: transform.translation.x.atan2(transform.translation.z),
+    fn climb_after(transform: &Transform, cooldown_secs: f32) -> Self {
+        let horizontal = -transform
+            .translation
+            .xz()
+            .try_normalize()
+            .unwrap_or(Vec2::X);
+        let target = Vec3::new(
+            horizontal.x * SOAR_RADIUS,
+            SOAR_ALTITUDE,
+            horizontal.y * SOAR_RADIUS,
+        );
+        Self::Climbing {
+            target,
             cooldown: Timer::new(Duration::from_secs_f32(cooldown_secs), TimerMode::Once),
         }
     }
