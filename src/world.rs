@@ -1,6 +1,6 @@
 use std::{f32::consts::PI, fmt::Display, time::Duration};
 
-use bevy::{camera::primitives::Aabb, prelude::*, time::Stopwatch};
+use bevy::{camera::primitives::Aabb, color::Mix, prelude::*, time::Stopwatch};
 use rand::RngExt;
 
 use crate::crow::Crow;
@@ -8,6 +8,14 @@ use crate::crow::Crow;
 const DAY_LENGTH: Duration = Duration::from_mins(10);
 const DUSK_LENGTH: Duration = Duration::from_mins(1);
 const NIGHT_LENGTH: Duration = Duration::from_mins(1);
+const DAY_TO_DUSK_WINDOW: Duration = Duration::from_secs(60);
+const DUSK_TO_NIGHT_WINDOW: Duration = Duration::from_secs(30);
+const DAY_LIGHT: LinearRgba = LinearRgba::WHITE;
+const DUSK_LIGHT: LinearRgba = LinearRgba::new(1.0, 0.25, 0.05, 1.0);
+const NIGHT_LIGHT: LinearRgba = LinearRgba::new(0.02, 0.04, 0.15, 1.0);
+const DAY_SKY: LinearRgba = LinearRgba::new(0.3, 0.5, 0.8, 1.0);
+const DUSK_SKY: LinearRgba = LinearRgba::new(0.7, 0.25, 0.1, 1.0);
+const NIGHT_SKY: LinearRgba = LinearRgba::new(0.005, 0.01, 0.05, 1.0);
 
 #[derive(Component)]
 pub struct Carryable;
@@ -25,6 +33,9 @@ pub struct Roost;
 
 #[derive(Component)]
 pub struct Cover;
+
+#[derive(Component)]
+struct Sun;
 
 #[derive(Component)]
 pub struct UnderCover;
@@ -51,8 +62,9 @@ impl Plugin for WorldPlugin {
         app.init_resource::<Score>()
             .init_state::<MissionPhase>()
             .init_resource::<WorldTimer>()
+            .insert_resource(ClearColor(Color::from(DAY_SKY)))
             .add_systems(Startup, setup)
-            .add_systems(Update, pass_time)
+            .add_systems(Update, (pass_time, tint_sun))
             .add_systems(FixedUpdate, update_cover);
     }
 }
@@ -67,8 +79,10 @@ fn setup(
         MeshMaterial3d(materials.add(Color::WHITE)),
     ));
     commands.spawn((
+        Sun,
         DirectionalLight {
             shadows_enabled: true,
+            color: Color::from(DAY_LIGHT),
             ..default()
         },
         Transform::from_xyz(1., 1., -1.).looking_at(Vec3::ZERO, Vec3::Y),
@@ -117,6 +131,50 @@ fn update_cover(
             commands.entity(crow_entity).try_remove::<UnderCover>();
         }
     }
+}
+
+fn tint_sun(
+    mut sun: Single<&mut DirectionalLight, With<Sun>>,
+    mut clear_color: ResMut<ClearColor>,
+    world_timer: Res<WorldTimer>,
+) {
+    let elapsed = world_timer.0.elapsed();
+    let (from_light, from_sky, to_light, to_sky, boundary, window) = if elapsed < DAY_LENGTH {
+        (
+            DAY_LIGHT,
+            DAY_SKY,
+            DUSK_LIGHT,
+            DUSK_SKY,
+            DAY_LENGTH,
+            DAY_TO_DUSK_WINDOW,
+        )
+    } else if elapsed < DAY_LENGTH + DUSK_LENGTH {
+        (
+            DUSK_LIGHT,
+            DUSK_SKY,
+            NIGHT_LIGHT,
+            NIGHT_SKY,
+            DAY_LENGTH + DUSK_LENGTH,
+            DUSK_TO_NIGHT_WINDOW,
+        )
+    } else {
+        (
+            NIGHT_LIGHT,
+            NIGHT_SKY,
+            NIGHT_LIGHT,
+            NIGHT_SKY,
+            DAY_LENGTH + DUSK_LENGTH,
+            DUSK_TO_NIGHT_WINDOW,
+        )
+    };
+    let transition_start = boundary.saturating_sub(window);
+    let t = if elapsed <= transition_start {
+        0.0
+    } else {
+        ((elapsed - transition_start).as_secs_f32() / window.as_secs_f32()).clamp(0.0, 1.0)
+    };
+    sun.color = Color::from(from_light.mix(&to_light, t));
+    clear_color.0 = Color::from(from_sky.mix(&to_sky, t));
 }
 
 fn pass_time(
