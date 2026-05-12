@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::{
     crow::{Carrying, Crow, CrowState, FlockNeighbors, InjuredTimer},
-    world::{Carryable, UnderCover},
+    world::{Carryable, MissionPhase, UnderCover},
 };
 
 const SOAR_RADIUS: f32 = 10.;
@@ -44,12 +44,12 @@ pub struct HawkPlugin;
 
 impl Plugin for HawkPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
+        app.add_systems(OnEnter(MissionPhase::Dusk), spawn_hawk)
             .add_systems(Update, (soar, pick_target, dive, climb).chain());
     }
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_hawk(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Hawk,
         HawkState::soaring(),
