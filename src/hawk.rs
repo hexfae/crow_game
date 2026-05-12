@@ -3,8 +3,8 @@ use std::{f32::consts::PI, time::Duration};
 use bevy::prelude::*;
 
 use crate::{
-    crow::{Crow, CrowState, FlockNeighbors},
-    world::UnderCover,
+    crow::{Carrying, Crow, CrowState, FlockNeighbors, InjuredTimer},
+    world::{Carryable, UnderCover},
 };
 
 const SOAR_RADIUS: f32 = 10.;
@@ -15,6 +15,7 @@ const DIVE_COOLDOWN_SECS: f32 = 10.;
 const DIVE_SPEED: f32 = 20.;
 const DIVE_ARRIVAL_THRESHOLD: f32 = 0.5;
 const COMMIT_DISTANCE: f32 = 3.0;
+const HIT_RADIUS: f32 = 0.5;
 const ISOLATION_NEIGHBOR_LIMIT: usize = 3;
 
 #[derive(Component)]
@@ -120,15 +121,16 @@ fn pick_target(
 fn dive(
     mut commands: Commands,
     mut hawks: Query<(Entity, &mut Transform, &mut HawkState), With<Hawk>>,
-    crows: Query<(&Transform, &CrowState), (With<Crow>, Without<Hawk>)>,
+    crows: Query<(Entity, &Transform, &CrowState), (With<Crow>, Without<Hawk>)>,
+    carrying: Query<&Carrying>,
     under_cover: Query<(), With<UnderCover>>,
     time: Res<Time>,
 ) {
-    for (entity, mut transform, mut state) in &mut hawks {
+    for (hawk_entity, mut hawk_transform, mut hawk_state) in &mut hawks {
         let HawkState::Diving {
             target,
             locked_position,
-        } = &mut *state
+        } = &mut *hawk_state
         else {
             continue;
         };
@@ -136,28 +138,56 @@ fn dive(
         let target_pos = if let Some(pos) = *locked_position {
             pos
         } else {
-            let Ok((target_transform, target_state)) = crows.get(*target) else {
-                commands
-                    .entity(entity)
-                    .insert(HawkState::soar_after(&transform, SHORT_DIVE_COOLDOWN_SECS));
+            let Ok((_, target_transform, target_state)) = crows.get(*target) else {
+                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                    &hawk_transform,
+                    SHORT_DIVE_COOLDOWN_SECS,
+                ));
                 continue;
             };
             if under_cover.contains(*target) || !target_state.is_attackable() {
-                commands
-                    .entity(entity)
-                    .insert(HawkState::soar_after(&transform, SHORT_DIVE_COOLDOWN_SECS));
+                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                    &hawk_transform,
+                    SHORT_DIVE_COOLDOWN_SECS,
+                ));
                 continue;
             }
             target_transform.translation
         };
 
-        let offset = target_pos - transform.translation;
+        let offset = target_pos - hawk_transform.translation;
         let distance = offset.length();
 
         if distance < DIVE_ARRIVAL_THRESHOLD {
+            let Some((crow_entity, _, _)) = crows
+                .iter()
+                .filter(|(_, _, crow_state)| crow_state.is_attackable())
+                .find(|(_, crow_transform, _)| {
+                    crow_transform
+                        .translation
+                        .distance(hawk_transform.translation)
+                        < HIT_RADIUS
+                })
+            else {
+                commands.entity(hawk_entity).insert(HawkState::soar_after(
+                    &hawk_transform,
+                    SHORT_DIVE_COOLDOWN_SECS,
+                ));
+                continue;
+            };
             commands
-                .entity(entity)
-                .insert(HawkState::soar_after(&transform, DIVE_COOLDOWN_SECS));
+                .entity(hawk_entity)
+                .insert(HawkState::soar_after(&hawk_transform, DIVE_COOLDOWN_SECS));
+            commands
+                .entity(crow_entity)
+                .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
+                .try_remove::<Carrying>();
+            if let Ok(carrying) = carrying.get(crow_entity) {
+                commands
+                    .entity(carrying.0)
+                    .remove_parent_in_place()
+                    .insert(Carryable);
+            }
             continue;
         }
 
@@ -166,8 +196,8 @@ fn dive(
         }
 
         let direction = offset / distance;
-        transform.translation += direction * DIVE_SPEED * time.delta_secs();
-        transform.look_to(direction, Vec3::Y);
+        hawk_transform.translation += direction * DIVE_SPEED * time.delta_secs();
+        hawk_transform.look_to(direction, Vec3::Y);
     }
 }
 
