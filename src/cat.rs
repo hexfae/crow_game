@@ -5,7 +5,7 @@ use rand::RngExt;
 
 use crate::{
     crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Velocity},
-    world::{Carryable, Mobbable},
+    world::{Carryable, MissionPhase, Mobbable},
 };
 
 const CAT_HOME: Vec3 = Vec3::new(5., 0., -5.);
@@ -34,17 +34,19 @@ pub struct CatPlugin;
 
 impl Plugin for CatPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            (
-                walk,
-                experience_boredom,
-                pounce,
-                get_mobbed,
-                injure_pounced_crow,
-            )
-                .chain(),
-        );
+        app.add_systems(Startup, setup)
+            .add_systems(OnExit(MissionPhase::Results), reset_cat)
+            .add_systems(
+                Update,
+                (
+                    walk,
+                    experience_boredom,
+                    pounce,
+                    get_mobbed,
+                    injure_pounced_crow,
+                )
+                    .chain(),
+            );
     }
 }
 
@@ -58,6 +60,20 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             .with_translation(CAT_HOME)
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
     ));
+}
+
+fn reset_cat(
+    mut commands: Commands,
+    cats: Query<(Entity, &mut Transform, &mut Mobbable), With<Cat>>,
+) {
+    for (entity, mut transform, mut mobbable) in cats {
+        commands
+            .entity(entity)
+            .remove::<(PouncedOn, InjureCrowTimer, Scared, WalkTo)>();
+        transform.translation = CAT_HOME;
+        transform.rotation = Quat::from_rotation_y(PI * 0.75);
+        mobbable.time = 0.;
+    }
 }
 
 fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, time: Res<Time>) {

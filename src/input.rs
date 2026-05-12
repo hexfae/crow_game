@@ -19,6 +19,10 @@ pub struct Direct;
 #[action_output(bool)]
 pub struct Recall;
 
+#[derive(InputAction)]
+#[action_output(bool)]
+pub struct Restart;
+
 #[derive(Resource, Default)]
 pub struct CommandCursor {
     pub world_position: Option<Vec3>,

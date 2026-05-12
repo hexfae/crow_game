@@ -3,7 +3,11 @@ use std::{f32::consts::PI, fmt::Display, time::Duration};
 use bevy::{camera::primitives::Aabb, color::Mix, prelude::*, time::Stopwatch};
 use rand::RngExt;
 
-use crate::crow::{Crow, InjuredTimer};
+use crate::{
+    crow::{Crow, InjuredTimer},
+    input::Restart,
+};
+use bevy_enhanced_input::prelude::*;
 
 const DAY_LENGTH: Duration = Duration::from_mins(10);
 const DUSK_LENGTH: Duration = Duration::from_mins(1);
@@ -70,7 +74,9 @@ impl Plugin for WorldPlugin {
             .insert_resource(ClearColor(Color::from(DAY_SKY)))
             .add_systems(Startup, setup)
             .add_systems(Update, (pass_time, tint_sun, count_injured))
-            .add_systems(FixedUpdate, update_cover);
+            .add_systems(FixedUpdate, update_cover)
+            .add_systems(OnExit(MissionPhase::Results), reset_world)
+            .add_observer(on_restart);
     }
 }
 
@@ -105,6 +111,14 @@ fn setup(
         Transform::from_xyz(-5., 8.0, -5.),
     ));
 
+    spawn_carryables(&mut commands, &mut meshes, &mut materials);
+}
+
+fn spawn_carryables(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
     let mut rng = rand::rng();
     for _ in 0..8 {
         let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
@@ -184,6 +198,34 @@ fn tint_sun(
 
 fn count_injured(injuries: Query<(), Added<InjuredTimer>>, mut injured: ResMut<Injured>) {
     injured.0 += injuries.iter().count() as u32;
+}
+
+fn on_restart(
+    _: On<Start<Restart>>,
+    state: Res<State<MissionPhase>>,
+    mut next_state: ResMut<NextState<MissionPhase>>,
+) {
+    if *state.get() == MissionPhase::Results {
+        next_state.set(MissionPhase::Day);
+    }
+}
+
+fn reset_world(
+    mut commands: Commands,
+    mut world_timer: ResMut<WorldTimer>,
+    mut score: ResMut<Score>,
+    mut injured: ResMut<Injured>,
+    carryables: Query<Entity, With<Carryable>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    world_timer.0.reset();
+    score.0 = 0;
+    injured.0 = 0;
+    for entity in carryables {
+        commands.entity(entity).despawn();
+    }
+    spawn_carryables(&mut commands, &mut meshes, &mut materials);
 }
 
 fn pass_time(

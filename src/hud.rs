@@ -23,7 +23,8 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, (setup, spawn_fade))
             .add_systems(Update, (update_score, update_time, update_phase, fade))
-            .add_systems(OnEnter(MissionPhase::Results), spawn_results);
+            .add_systems(OnEnter(MissionPhase::Results), spawn_results)
+            .add_systems(OnExit(MissionPhase::Results), despawn_results);
     }
 }
 
@@ -89,6 +90,12 @@ fn spawn_fade(mut commands: Commands) {
 
 fn fade(mut fade: Single<&mut BackgroundColor, With<NightFade>>, timer: Res<WorldTimer>) {
     fade.0 = Color::srgba(0., 0., 0., timer.night_fade_alpha());
+}
+
+fn despawn_results(mut commands: Commands, results: Query<Entity, With<ResultsScreen>>) {
+    for entity in results {
+        commands.entity(entity).despawn();
+    }
 }
 
 fn spawn_results(

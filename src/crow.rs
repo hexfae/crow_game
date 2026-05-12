@@ -5,8 +5,8 @@ use bevy_enhanced_input::prelude::*;
 use rand::RngExt;
 
 use crate::{
-    input::{Direct, MoveLeader, Player, Recall},
-    world::{Carryable, Roost, Score},
+    input::{Direct, MoveLeader, Player, Recall, Restart},
+    world::{Carryable, MissionPhase, Roost, Score},
 };
 
 const LEADER_SPEED: f32 = 4.0;
@@ -65,6 +65,7 @@ impl Plugin for CrowPlugin {
                 .chain()
                 .in_set(CrowSystems::Integrate),
         )
+        .add_systems(OnExit(MissionPhase::Results), reset_crows)
         .add_observer(move_leader)
         .add_observer(stop_leader);
     }
@@ -123,6 +124,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 ),
                 (Action::<Direct>::new(), bindings![MouseButton::Left]),
                 (Action::<Recall>::new(), bindings![MouseButton::Right]),
+                (Action::<Restart>::new(), bindings![KeyCode::Enter]),
             ]),
         ))
         .with_child((
@@ -216,6 +218,25 @@ fn recover_from_injury(
                     .insert(CrowState::FollowLeader);
             }
         }
+    }
+}
+
+fn reset_crows(
+    mut commands: Commands,
+    mut crows: Query<
+        (Entity, &mut CrowState, &mut Velocity, &mut DesiredVelocity),
+        (With<Crow>, Without<LeaderCrow>),
+    >,
+    carrying: Query<&Carrying>,
+) {
+    for (entity, mut state, mut velocity, mut desired) in &mut crows {
+        if let Ok(carrying) = carrying.get(entity) {
+            commands.entity(carrying.0).despawn();
+        }
+        commands.entity(entity).remove::<(InjuredTimer, Carrying)>();
+        *state = CrowState::FollowLeader;
+        velocity.0 = Vec3::ZERO;
+        desired.0 = Vec3::ZERO;
     }
 }
 

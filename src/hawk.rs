@@ -45,7 +45,14 @@ pub struct HawkPlugin;
 impl Plugin for HawkPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(MissionPhase::Dusk), spawn_hawk)
+            .add_systems(OnExit(MissionPhase::Results), despawn_hawks)
             .add_systems(Update, (soar, pick_target, dive, climb).chain());
+    }
+}
+
+fn despawn_hawks(mut commands: Commands, hawks: Query<Entity, With<Hawk>>) {
+    for entity in hawks {
+        commands.entity(entity).despawn();
     }
 }
 
