@@ -244,6 +244,10 @@ impl CrowState {
             Self::FollowLeader | Self::SeekTarget(_) | Self::GrabCarryable(_) | Self::Mobbing(_)
         )
     }
+
+    pub fn is_attackable(&self) -> bool {
+        !matches!(self, Self::CapturedBy(_) | Self::RecoveringFromInjury)
+    }
 }
 
 impl Default for InjuredTimer {

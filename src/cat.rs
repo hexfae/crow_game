@@ -111,7 +111,7 @@ fn pounce(
         if crows
             .iter()
             .filter(|(_, transform, state, _, _)| {
-                !matches!(state, CrowState::CapturedBy(_))
+                state.is_attackable()
                     && transform.translation.distance(cat_transform.translation) < 6.
             })
             .count()
@@ -156,7 +156,7 @@ fn get_mobbed(
         if crows
             .iter()
             .filter(|crow| {
-                !matches!(crow.1, CrowState::CapturedBy(_))
+                crow.1.is_attackable()
                     && crow.0.translation.distance(cat_transform.translation) < 4.
             })
             .count()
