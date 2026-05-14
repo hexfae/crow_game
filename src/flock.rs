@@ -6,7 +6,7 @@ use rand::seq::IteratorRandom;
 use crate::{
     crow::{
         Carrying, Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow,
-        Velocity,
+        Species, Velocity,
     },
     input::{CommandCursor, Direct, Recall},
     world::{Carryable, Mobbable, Roost},
@@ -176,12 +176,13 @@ fn boids_steer(
             &Velocity,
             &FlockNeighbors,
             &CrowState,
+            &Species,
             &mut DesiredVelocity,
         ),
         (With<Crow>, Without<LeaderCrow>),
     >,
 ) {
-    for (transform, velocity, neighbors, state, mut desired_velocity) in &mut crows {
+    for (transform, velocity, neighbors, state, species, mut desired_velocity) in &mut crows {
         let goal = match state {
             CrowState::FollowLeader => leader.translation + ALTITUDE_OFFSET,
             CrowState::SeekTarget(target) => *target + ALTITUDE_OFFSET,
@@ -233,7 +234,7 @@ fn boids_steer(
             * Vec3::new(1.0, boid_params.vertical_blend, 1.0);
 
         desired_velocity.0 = (flock_force + goal_force * boid_params.goal_weight)
-            .clamp_length_max(boid_params.max_speed);
+            .clamp_length_max(boid_params.max_speed * species.speed_factor());
     }
 }
 

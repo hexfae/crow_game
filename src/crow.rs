@@ -10,12 +10,36 @@ use crate::{
 };
 
 const LEADER_SPEED: f32 = 4.0;
+const CARRION_COUNT: usize = 30;
+const RAVEN_COUNT: usize = 6;
 
 #[derive(Component)]
 pub struct Crow;
 
 #[derive(Component)]
 pub struct LeaderCrow;
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Species {
+    Carrion,
+    Raven,
+}
+
+impl Species {
+    pub fn scale(self) -> f32 {
+        match self {
+            Species::Carrion => 0.2,
+            Species::Raven => 0.3,
+        }
+    }
+
+    pub fn speed_factor(self) -> f32 {
+        match self {
+            Species::Carrion => 1.0,
+            Species::Raven => 0.6,
+        }
+    }
+}
 
 #[derive(Component, Default, PartialEq)]
 pub enum CrowState {
@@ -73,38 +97,46 @@ impl Plugin for CrowPlugin {
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let mut rng = rand::rng();
-    for _ in 0..50 {
-        let position = Vec3::new(
-            rng.random_range(-5.0..5.),
-            rng.random_range(5.0..6.),
-            rng.random_range(-5.0..5.),
-        );
-        let direction = Vec3::new(
-            rng.random_range(-1.0..1.0),
-            rng.random_range(-0.2..0.2),
-            rng.random_range(-1.0..1.0),
-        )
-        .normalize_or_zero();
+    for (species, count) in [
+        (Species::Carrion, CARRION_COUNT),
+        (Species::Raven, RAVEN_COUNT),
+    ] {
+        for _ in 0..count {
+            let position = Vec3::new(
+                rng.random_range(-5.0..5.),
+                rng.random_range(5.0..6.),
+                rng.random_range(-5.0..5.),
+            );
+            let direction = Vec3::new(
+                rng.random_range(-1.0..1.0),
+                rng.random_range(-0.2..0.2),
+                rng.random_range(-1.0..1.0),
+            )
+            .normalize_or_zero();
 
-        commands.spawn((
-            Crow,
-            CrowState::default(),
-            Velocity(direction * 2.0),
-            DesiredVelocity::default(),
-            FlockNeighbors::default(),
-            Transform::from_translation(position).with_scale(Vec3::splat(0.2)),
-            SceneRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
-            ),
-        ));
+            commands.spawn((
+                Crow,
+                species,
+                CrowState::default(),
+                Velocity(direction * 2.0),
+                DesiredVelocity::default(),
+                FlockNeighbors::default(),
+                Transform::from_translation(position).with_scale(Vec3::splat(species.scale())),
+                SceneRoot(
+                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
+                ),
+            ));
+        }
     }
     commands
         .spawn((
             Crow,
             LeaderCrow,
+            Species::Carrion,
             Player,
             Velocity::default(),
-            Transform::from_scale(Vec3::splat(0.2)).with_translation(Vec3::Y * 3.),
+            Transform::from_scale(Vec3::splat(Species::Carrion.scale()))
+                .with_translation(Vec3::Y * 3.),
             SceneRoot(
                 asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
             ),
