@@ -5,7 +5,7 @@ use bevy_enhanced_input::prelude::*;
 use rand::RngExt;
 
 use crate::{
-    input::{Direct, MoveLeader, Player, Recall, Restart},
+    input::{Direct, MoveLeader, Player, Recall, Restart, Zoom},
     world::{Carryable, MissionPhase, Roost, Score},
 };
 
@@ -125,6 +125,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 (Action::<Direct>::new(), bindings![MouseButton::Left]),
                 (Action::<Recall>::new(), bindings![MouseButton::Right]),
                 (Action::<Restart>::new(), bindings![KeyCode::Enter]),
+                (
+                    Action::<Zoom>::new(),
+                    bindings![(Binding::mouse_wheel(), SwizzleAxis::YXZ)],
+                ),
             ]),
         ))
         .with_child((

@@ -23,6 +23,10 @@ pub struct Recall;
 #[action_output(bool)]
 pub struct Restart;
 
+#[derive(InputAction)]
+#[action_output(f32)]
+pub struct Zoom;
+
 #[derive(Resource, Default)]
 pub struct CommandCursor {
     pub world_position: Option<Vec3>,
