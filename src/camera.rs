@@ -40,7 +40,10 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PostStartup, setup)
-            .add_systems(Update, (derive_from_zoom, drive_rig).chain())
+            .add_systems(
+                Update,
+                (track_focus, derive_from_zoom, drive_rig).chain(),
+            )
             .add_systems(OnExit(MissionPhase::Results), request_snap)
             .add_observer(on_zoom);
     }
@@ -64,7 +67,12 @@ pub enum Follow {
     Fixed(Vec3),
 }
 
-fn setup(mut commands: Commands, leader: Single<Entity, With<LeaderCrow>>) {
+#[derive(Component)]
+pub struct CameraFocus;
+
+fn setup(mut commands: Commands) {
+    let focus = commands.spawn((CameraFocus, Transform::default())).id();
+
     let zoom = 0.5;
     let (arm, rotation, fov) = arm_from_zoom(zoom);
 
@@ -72,7 +80,7 @@ fn setup(mut commands: Commands, leader: Single<Entity, With<LeaderCrow>>) {
         Camera3d::default(),
         Transform::from_translation(arm).with_rotation(rotation),
         CameraRig {
-            follow: Follow::Entity(*leader),
+            follow: Follow::Entity(focus),
             zoom,
             arm_offset: arm,
             desired_rotation: rotation,
@@ -83,6 +91,13 @@ fn setup(mut commands: Commands, leader: Single<Entity, With<LeaderCrow>>) {
             snap: true,
         },
     ));
+}
+
+fn track_focus(
+    leader: Single<&Transform, (With<LeaderCrow>, Without<CameraFocus>)>,
+    mut focus: Single<&mut Transform, With<CameraFocus>>,
+) {
+    focus.translation = leader.translation;
 }
 
 fn arm_from_zoom(zoom: f32) -> (Vec3, Quat, f32) {
