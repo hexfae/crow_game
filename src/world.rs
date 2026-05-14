@@ -26,6 +26,9 @@ const NIGHT_SKY: LinearRgba = LinearRgba::new(0.005, 0.01, 0.05, 1.0);
 pub struct Carryable;
 
 #[derive(Component)]
+pub struct Weight(pub f32);
+
+#[derive(Component)]
 pub struct Mobbable {
     /// The minimum amount of crows to intimidate the attacker.
     pub minimum: usize,
@@ -120,13 +123,25 @@ fn spawn_carryables(
     materials: &mut Assets<StandardMaterial>,
 ) {
     let mut rng = rand::rng();
-    for _ in 0..8 {
+    for _ in 0..6 {
         let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
         let rotation = rng.random_range(0.0..PI * 2.0);
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(2., 0.2, 0.5))),
             MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 0))),
             Carryable,
+            Weight(1.0),
+            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
+        ));
+    }
+    for _ in 0..2 {
+        let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
+        let rotation = rng.random_range(0.0..PI * 2.0);
+        commands.spawn((
+            Mesh3d(meshes.add(Cuboid::new(0.7, 0.2, 0.7))),
+            MeshMaterial3d(materials.add(Color::srgb_u8(120, 120, 120))),
+            Carryable,
+            Weight(3.0),
             Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
         ));
     }

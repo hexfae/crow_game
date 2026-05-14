@@ -39,6 +39,13 @@ impl Species {
             Species::Raven => 0.6,
         }
     }
+
+    pub fn strength(self) -> f32 {
+        match self {
+            Species::Carrion => 1.0,
+            Species::Raven => 3.0,
+        }
+    }
 }
 
 #[derive(Component, Default, PartialEq)]
