@@ -27,6 +27,10 @@ pub struct Restart;
 #[action_output(f32)]
 pub struct Zoom;
 
+#[derive(InputAction)]
+#[action_output(Vec3)]
+pub struct PanCamera;
+
 #[derive(Resource, Default)]
 pub struct CommandCursor {
     pub world_position: Option<Vec3>,

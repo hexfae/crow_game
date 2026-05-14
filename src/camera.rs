@@ -3,12 +3,17 @@ use std::f32::consts::{FRAC_PI_3, FRAC_PI_4};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 
-use crate::{crow::LeaderCrow, input::Zoom, world::MissionPhase};
+use crate::{
+    crow::LeaderCrow,
+    input::{PanCamera, Zoom},
+    world::MissionPhase,
+};
 
 const POSITION_DECAY: f32 = 5.0;
 const ROTATION_DECAY: f32 = 5.0;
 const FOV_DECAY: f32 = 5.0;
 const ZOOM_SENSITIVITY: f32 = 0.1;
+const PAN_SPEED: f32 = 6.0;
 
 #[derive(Clone, Copy)]
 struct ZoomView {
@@ -45,7 +50,8 @@ impl Plugin for CameraPlugin {
                 (track_focus, derive_from_zoom, drive_rig).chain(),
             )
             .add_systems(OnExit(MissionPhase::Results), request_snap)
-            .add_observer(on_zoom);
+            .add_observer(on_zoom)
+            .add_observer(on_pan);
     }
 }
 
@@ -68,10 +74,15 @@ pub enum Follow {
 }
 
 #[derive(Component)]
-pub struct CameraFocus;
+pub enum CameraFocus {
+    Free,
+    Following(Entity),
+}
 
-fn setup(mut commands: Commands) {
-    let focus = commands.spawn((CameraFocus, Transform::default())).id();
+fn setup(mut commands: Commands, leader: Single<Entity, With<LeaderCrow>>) {
+    let focus = commands
+        .spawn((CameraFocus::Following(*leader), Transform::default()))
+        .id();
 
     let zoom = 0.5;
     let (arm, rotation, fov) = arm_from_zoom(zoom);
@@ -94,10 +105,15 @@ fn setup(mut commands: Commands) {
 }
 
 fn track_focus(
-    leader: Single<&Transform, (With<LeaderCrow>, Without<CameraFocus>)>,
-    mut focus: Single<&mut Transform, With<CameraFocus>>,
+    focus: Single<(&mut Transform, &CameraFocus)>,
+    transforms: Query<&Transform, Without<CameraFocus>>,
 ) {
-    focus.translation = leader.translation;
+    let (mut focus_xf, mode) = focus.into_inner();
+    if let CameraFocus::Following(entity) = mode
+        && let Ok(target) = transforms.get(*entity)
+    {
+        focus_xf.translation = target.translation;
+    }
 }
 
 fn arm_from_zoom(zoom: f32) -> (Vec3, Quat, f32) {
@@ -170,4 +186,14 @@ fn request_snap(mut rig: Single<&mut CameraRig>) {
 
 fn on_zoom(fire: On<Fire<Zoom>>, mut rig: Single<&mut CameraRig>) {
     rig.zoom = (rig.zoom - fire.value * ZOOM_SENSITIVITY).clamp(0., 1.);
+}
+
+fn on_pan(
+    fire: On<Fire<PanCamera>>,
+    focus: Single<(&mut Transform, &mut CameraFocus)>,
+    time: Res<Time>,
+) {
+    let (mut transform, mut mode) = focus.into_inner();
+    *mode = CameraFocus::Free;
+    transform.translation += fire.value * PAN_SPEED * time.delta_secs();
 }
