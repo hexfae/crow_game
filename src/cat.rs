@@ -127,11 +127,11 @@ fn pounce(
     for (cat_entity, cat_transform, mobbable) in cats {
         let nearby_strength: f32 = crows
             .iter()
-            .filter(|(_, transform, state, _, _, _)| {
-                state.is_attackable()
-                    && transform.translation.distance(cat_transform.translation) < 6.
+            .filter(|(_, _, state, _, _, _)| state.is_attackable())
+            .map(|(_, transform, _, _, _, species)| {
+                let distance = transform.translation.distance(cat_transform.translation);
+                mob_contribution(distance, 6., *species)
             })
-            .map(|(_, _, _, _, _, species)| species.strength())
             .sum();
         if nearby_strength >= mobbable.minimum {
             continue;
@@ -173,11 +173,11 @@ fn get_mobbed(
     for (cat_entity, cat_transform, mut mobbable, pounced_on) in cats {
         let nearby_strength: f32 = crows
             .iter()
-            .filter(|(transform, state, _)| {
-                state.is_attackable()
-                    && transform.translation.distance(cat_transform.translation) < 4.
+            .filter(|(_, state, _)| state.is_attackable())
+            .map(|(transform, _, species)| {
+                let distance = transform.translation.distance(cat_transform.translation);
+                mob_contribution(distance, 4., *species)
             })
-            .map(|(_, _, species)| species.strength())
             .sum();
         if nearby_strength >= mobbable.minimum {
             mobbable.time += time.delta_secs();
@@ -231,6 +231,11 @@ fn injure_pounced_crow(
             }
         }
     }
+}
+
+fn mob_contribution(distance: f32, radius: f32, species: Species) -> f32 {
+    const PLATEAU: f32 = 1.0;
+    species.strength() * ((radius - distance) / (radius - PLATEAU)).clamp(0., 1.)
 }
 
 impl Default for InjureCrowTimer {
