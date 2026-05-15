@@ -30,8 +30,8 @@ pub struct Weight(pub f32);
 
 #[derive(Component)]
 pub struct Mobbable {
-    /// The minimum amount of crows to intimidate the attacker.
-    pub minimum: usize,
+    /// Total crow strength required in radius to intimidate the attacker.
+    pub minimum: f32,
     /// How long (in seconds) the attacker has been mobbed.
     pub time: f32,
 }
@@ -269,7 +269,7 @@ fn pass_time(
 }
 
 impl Mobbable {
-    pub fn minimum(minimum: usize) -> Self {
+    pub fn minimum(minimum: f32) -> Self {
         Self { minimum, time: 0. }
     }
 }

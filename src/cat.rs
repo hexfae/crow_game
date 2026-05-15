@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::{
-    crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Velocity},
+    crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Species, Velocity},
     world::{Carryable, MissionPhase, Mobbable},
 };
 
@@ -55,7 +55,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         Cat,
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/cat/cat.glb"))),
         Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
-        Mobbable::minimum(4),
+        Mobbable::minimum(4.),
         Transform::from_scale(Vec3::splat(0.6))
             .with_translation(CAT_HOME)
             .with_rotation(Quat::from_rotation_y(PI * 0.75)),
@@ -119,23 +119,25 @@ fn pounce(
             &mut CrowState,
             &mut Velocity,
             &mut DesiredVelocity,
+            &Species,
         ),
         (Without<Cat>, Without<InjuredTimer>),
     >,
 ) {
     for (cat_entity, cat_transform, mobbable) in cats {
-        if crows
+        let nearby_strength: f32 = crows
             .iter()
-            .filter(|(_, transform, state, _, _)| {
+            .filter(|(_, transform, state, _, _, _)| {
                 state.is_attackable()
                     && transform.translation.distance(cat_transform.translation) < 6.
             })
-            .count()
-            >= mobbable.minimum
-        {
+            .map(|(_, _, _, _, _, species)| species.strength())
+            .sum();
+        if nearby_strength >= mobbable.minimum {
             continue;
         }
-        for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired) in &mut crows {
+        for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired, _) in &mut crows
+        {
             if let CrowState::CapturedBy(_) | CrowState::RecoveringFromInjury = *state {
                 continue;
             }
@@ -164,20 +166,20 @@ fn pounce(
 fn get_mobbed(
     mut commands: Commands,
     cats: Query<(Entity, &Transform, &mut Mobbable, &PouncedOn)>,
-    mut crows: Query<(&Transform, &mut CrowState)>,
+    mut crows: Query<(&Transform, &mut CrowState, &Species)>,
     carrying_query: Query<(), With<Carrying>>,
     time: Res<Time>,
 ) {
     for (cat_entity, cat_transform, mut mobbable, pounced_on) in cats {
-        if crows
+        let nearby_strength: f32 = crows
             .iter()
-            .filter(|crow| {
-                crow.1.is_attackable()
-                    && crow.0.translation.distance(cat_transform.translation) < 4.
+            .filter(|(transform, state, _)| {
+                state.is_attackable()
+                    && transform.translation.distance(cat_transform.translation) < 4.
             })
-            .count()
-            >= mobbable.minimum
-        {
+            .map(|(_, _, species)| species.strength())
+            .sum();
+        if nearby_strength >= mobbable.minimum {
             mobbable.time += time.delta_secs();
         } else {
             mobbable.time = (mobbable.time - time.delta_secs()).max(0.);
@@ -195,9 +197,9 @@ fn get_mobbed(
                 .remove::<PouncedOn>()
                 .insert(Scared)
                 .insert(WalkTo(CAT_HOME));
-            for (_, mut state) in crows
+            for (_, mut state, _) in crows
                 .iter_mut()
-                .filter(|(_, state)| **state == CrowState::Mobbing(cat_entity))
+                .filter(|(_, state, _)| **state == CrowState::Mobbing(cat_entity))
             {
                 *state = CrowState::FollowLeader;
             }

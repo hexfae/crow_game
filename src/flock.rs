@@ -85,7 +85,7 @@ fn on_direct(
         for (mut crow, _) in free_crows
             .iter_mut()
             .filter(|(state, _)| state.accepts_commands())
-            .sample(&mut rng, mobbable.minimum)
+            .sample(&mut rng, mobbable.minimum.ceil() as usize)
         {
             *crow = CrowState::Mobbing(entity);
         }
