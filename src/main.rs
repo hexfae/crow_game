@@ -2,10 +2,11 @@
 use bevy::prelude::*;
 
 use crate::{
-    camera::CameraPlugin, cat::CatPlugin, crow::CrowPlugin, flock::FlockPlugin, hawk::HawkPlugin,
-    hud::HudPlugin, input::InputPlugin, world::WorldPlugin,
+    audio::AudioPlugin, camera::CameraPlugin, cat::CatPlugin, crow::CrowPlugin,
+    flock::FlockPlugin, hawk::HawkPlugin, hud::HudPlugin, input::InputPlugin, world::WorldPlugin,
 };
 
+mod audio;
 mod camera;
 mod cat;
 mod crow;
@@ -19,6 +20,7 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins,
+            AudioPlugin,
             CameraPlugin,
             CrowPlugin,
             FlockPlugin,
