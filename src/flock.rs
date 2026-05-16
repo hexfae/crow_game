@@ -258,7 +258,8 @@ fn boids_steer(
         let (alignment_force, cohesion_force) = match state {
             CrowState::ReturningToRoost
             | CrowState::RecoveringFromInjury
-            | CrowState::GrabCarryable(_) => (Vec3::ZERO, Vec3::ZERO),
+            | CrowState::GrabCarryable(_)
+            | CrowState::Mobbing(_) => (Vec3::ZERO, Vec3::ZERO),
             _ => (
                 neighbor_velocity_sum / neighbor_count - velocity.0,
                 neighbor_position_sum / neighbor_count - transform.translation,
