@@ -57,8 +57,8 @@ fn on_direct(
     _: On<Start<Direct>>,
     mut commands: Commands,
     cursor: Res<CommandCursor>,
-    mut free_crows: Query<(&mut CrowState, &Species), Without<Carrying>>,
-    mut carrying_crows: Query<(&mut CrowState, &Species), With<Carrying>>,
+    mut free_crows: Query<(Entity, &mut CrowState, &Species), Without<Carrying>>,
+    mut carrying_crows: Query<(Entity, &mut CrowState, &Species), With<Carrying>>,
     carryables: Query<(&Transform, Entity, &Weight), With<Carryable>>,
     mobbables: Query<(&Transform, Entity, &Mobbable)>,
     roost: Single<&Transform, With<Roost>>,
@@ -72,12 +72,22 @@ fn on_direct(
         .iter()
         .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
     {
-        if let Some((mut state, _)) = free_crows
-            .iter_mut()
-            .filter(|(state, species)| {
+        let min_strength = free_crows
+            .iter()
+            .filter(|(_, state, species)| {
                 state.accepts_commands() && species.strength() >= weight.0
             })
-            .choose(&mut rng)
+            .map(|(_, _, s)| s.strength())
+            .reduce(f32::min);
+        if let Some(min) = min_strength
+            && let Some(chosen) = free_crows
+                .iter()
+                .filter(|(_, state, species)| {
+                    state.accepts_commands() && species.strength() == min
+                })
+                .map(|(e, _, _)| e)
+                .choose(&mut rng)
+            && let Ok((_, mut state, _)) = free_crows.get_mut(chosen)
         {
             *state = CrowState::GrabCarryable(entity);
             acknowledged = true;
@@ -86,23 +96,23 @@ fn on_direct(
         .iter()
         .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
     {
-        for (mut crow, _) in free_crows
+        for (_, mut crow, _) in free_crows
             .iter_mut()
-            .filter(|(state, _)| state.accepts_commands())
+            .filter(|(_, state, _)| state.accepts_commands())
             .sample(&mut rng, mobbable.minimum.ceil() as usize)
         {
             *crow = CrowState::Mobbing(entity);
             acknowledged = true;
         }
     } else if roost.translation.distance(world_position) < 1. {
-        for (mut state, _) in &mut carrying_crows {
+        for (_, mut state, _) in &mut carrying_crows {
             if state.accepts_commands() {
                 *state = CrowState::ReturningToRoost;
                 acknowledged = true;
             }
         }
     } else {
-        for (mut state, _) in free_crows.iter_mut().chain(carrying_crows.iter_mut()) {
+        for (_, mut state, _) in free_crows.iter_mut().chain(carrying_crows.iter_mut()) {
             if state.accepts_commands() && !matches!(*state, CrowState::GrabCarryable(_)) {
                 *state = CrowState::SeekTarget(world_position);
                 acknowledged = true;
