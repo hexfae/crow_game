@@ -5,6 +5,7 @@ use bevy_enhanced_input::prelude::*;
 use rand::RngExt;
 
 use crate::{
+    audio::{PlaySfx, Sfx},
     input::{Direct, MoveLeader, PanCamera, Player, Recall, Restart, Zoom},
     world::{Carryable, MissionPhase, Roost, Score},
 };
@@ -227,6 +228,10 @@ fn pickup(
                 .remove::<Carryable>()
                 .set_parent_in_place(crow_entity);
             *state = CrowState::ReturningToRoost;
+            commands.trigger(PlaySfx {
+                sound: Sfx::Pickup,
+                position: transform.translation,
+            });
         }
     }
 }
@@ -246,6 +251,10 @@ fn deposit_in_roost(
             commands.entity(carrying.0).despawn();
             *state = CrowState::FollowLeader;
             score.0 += 1;
+            commands.trigger(PlaySfx {
+                sound: Sfx::Deposit,
+                position: roost.translation,
+            });
         }
     }
 }

@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use rand::RngExt;
 
 use crate::{
+    audio::{PlaySfx, Sfx},
     crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Species, Velocity},
     world::{Carryable, MissionPhase, Mobbable},
 };
@@ -158,6 +159,10 @@ fn pounce(
             crow_transform.rotate_local_z(PI / 2.);
             velocity.0 = Vec3::ZERO;
             desired.0 = Vec3::ZERO;
+            commands.trigger(PlaySfx {
+                sound: Sfx::Impact,
+                position: cat_transform.translation,
+            });
             break;
         }
     }

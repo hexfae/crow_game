@@ -4,6 +4,7 @@ use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::ResourceInspectorPlugin}
 use rand::seq::IteratorRandom;
 
 use crate::{
+    audio::{PlaySfx, Sfx},
     crow::{
         Carrying, Crow, CrowState, CrowSystems, DesiredVelocity, FlockNeighbors, LeaderCrow,
         Species, Velocity,
@@ -54,6 +55,7 @@ impl Plugin for FlockPlugin {
 
 fn on_direct(
     _: On<Start<Direct>>,
+    mut commands: Commands,
     cursor: Res<CommandCursor>,
     mut free_crows: Query<(&mut CrowState, &Species), Without<Carrying>>,
     mut carrying_crows: Query<(&mut CrowState, &Species), With<Carrying>>,
@@ -65,6 +67,7 @@ fn on_direct(
         return;
     };
     let mut rng = rand::rng();
+    let mut acknowledged = false;
     if let Some((_, entity, weight)) = carryables
         .iter()
         .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
@@ -77,6 +80,7 @@ fn on_direct(
             .choose(&mut rng)
         {
             *state = CrowState::GrabCarryable(entity);
+            acknowledged = true;
         }
     } else if let Some((_, entity, mobbable)) = mobbables
         .iter()
@@ -88,27 +92,49 @@ fn on_direct(
             .sample(&mut rng, mobbable.minimum.ceil() as usize)
         {
             *crow = CrowState::Mobbing(entity);
+            acknowledged = true;
         }
     } else if roost.translation.distance(world_position) < 1. {
         for (mut state, _) in &mut carrying_crows {
             if state.accepts_commands() {
                 *state = CrowState::ReturningToRoost;
+                acknowledged = true;
             }
         }
     } else {
         for (mut state, _) in free_crows.iter_mut().chain(carrying_crows.iter_mut()) {
             if state.accepts_commands() && !matches!(*state, CrowState::GrabCarryable(_)) {
                 *state = CrowState::SeekTarget(world_position);
+                acknowledged = true;
             }
         }
     }
+    if acknowledged {
+        commands.trigger(PlaySfx {
+            sound: Sfx::Command,
+            position: world_position,
+        });
+    }
 }
 
-fn on_recall(_: On<Start<Recall>>, mut crows: Query<&mut CrowState>) {
+fn on_recall(
+    _: On<Start<Recall>>,
+    mut commands: Commands,
+    mut crows: Query<&mut CrowState>,
+    leader: Single<&Transform, With<LeaderCrow>>,
+) {
+    let mut acknowledged = false;
     for mut state in &mut crows {
-        if state.accepts_commands() {
+        if state.accepts_commands() && !matches!(*state, CrowState::FollowLeader) {
             *state = CrowState::FollowLeader;
+            acknowledged = true;
         }
+    }
+    if acknowledged {
+        commands.trigger(PlaySfx {
+            sound: Sfx::Recall,
+            position: leader.translation,
+        });
     }
 }
 
