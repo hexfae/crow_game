@@ -6,6 +6,7 @@ use rand::RngExt;
 use crate::{
     audio::{PlaySfx, Sfx},
     crow::{Carrying, Crow, CrowState, DesiredVelocity, InjuredTimer, Species, Velocity},
+    particles::{Particle, SpawnParticles},
     world::{Carryable, MissionPhase, Mobbable},
 };
 
@@ -163,6 +164,10 @@ fn pounce(
                 sound: Sfx::Impact,
                 position: cat_transform.translation,
             });
+            commands.trigger(SpawnParticles {
+                kind: Particle::FeatherBurst,
+                position: crow_transform.translation,
+            });
             break;
         }
     }
@@ -215,7 +220,7 @@ fn get_mobbed(
 fn injure_pounced_crow(
     mut commands: Commands,
     cats: Query<(Entity, &mut InjureCrowTimer, &PouncedOn), With<Cat>>,
-    crows: Query<&Carrying, With<Crow>>,
+    crows: Query<(&Transform, Option<&Carrying>), With<Crow>>,
     time: Res<Time>,
 ) {
     for (cat_entity, mut injure_crow_timer, pounced_on) in cats {
@@ -228,11 +233,17 @@ fn injure_pounced_crow(
                 .entity(pounced_on.0)
                 .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
                 .try_remove::<Carrying>();
-            if let Ok(carrying) = crows.get(pounced_on.0) {
-                commands
-                    .entity(carrying.0)
-                    .remove_parent_in_place()
-                    .insert(Carryable);
+            if let Ok((crow_transform, carrying)) = crows.get(pounced_on.0) {
+                if let Some(carrying) = carrying {
+                    commands
+                        .entity(carrying.0)
+                        .remove_parent_in_place()
+                        .insert(Carryable);
+                }
+                commands.trigger(SpawnParticles {
+                    kind: Particle::FeatherBurst,
+                    position: crow_transform.translation,
+                });
             }
         }
     }
