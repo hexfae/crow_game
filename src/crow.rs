@@ -11,8 +11,8 @@ use crate::{
 };
 
 const LEADER_SPEED: f32 = 4.0;
-const CARRION_COUNT: usize = 30;
-const RAVEN_COUNT: usize = 6;
+const CARRION_COUNT: usize = 8;
+const RAVEN_COUNT: usize = 2;
 
 #[derive(Component)]
 pub struct Crow;
