@@ -2,6 +2,11 @@ use bevy::prelude::*;
 
 use crate::world::{Injured, MissionPhase, Score, WorldTimer};
 
+const HUD_ROW_GAP: f32 = 24.0;
+const RESULTS_Z_INDEX: i32 = 20;
+const FADE_Z_INDEX: i32 = 10;
+const SECONDS_PER_MINUTE: u64 = 60;
+
 #[derive(Component)]
 struct ScoreText;
 
@@ -31,10 +36,10 @@ impl Plugin for HudPlugin {
 fn setup(mut commands: Commands) {
     commands
         .spawn(Node {
-            width: Val::Percent(100.),
+            width: Val::Percent(100.0),
             flex_direction: FlexDirection::Column,
             align_items: AlignItems::Center,
-            row_gap: Val::Px(24.),
+            row_gap: Val::Px(HUD_ROW_GAP),
             ..default()
         })
         .with_children(|parent| {
@@ -63,8 +68,9 @@ fn update_time(
     phase: Res<State<MissionPhase>>,
 ) {
     let remaining = timer.remaining_in(*phase.get()).as_secs_f32();
-    let minutes = (remaining / 60.) as u32;
-    let seconds = remaining % 60.;
+    let seconds_per_minute = SECONDS_PER_MINUTE as f32;
+    let minutes = (remaining / seconds_per_minute) as u32;
+    let seconds = remaining % seconds_per_minute;
     text.0 = format!("{minutes}m {seconds:04.1}s");
 }
 
@@ -79,17 +85,17 @@ fn spawn_fade(mut commands: Commands) {
         NightFade,
         Node {
             position_type: PositionType::Absolute,
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
             ..default()
         },
-        BackgroundColor(Color::srgba(0., 0., 0., 0.)),
-        ZIndex(10),
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+        ZIndex(FADE_Z_INDEX),
     ));
 }
 
 fn fade(mut fade: Single<&mut BackgroundColor, With<NightFade>>, timer: Res<WorldTimer>) {
-    fade.0 = Color::srgba(0., 0., 0., timer.night_fade_alpha());
+    fade.0 = Color::srgba(0.0, 0.0, 0.0, timer.night_fade_alpha());
 }
 
 fn despawn_results(mut commands: Commands, results: Query<Entity, With<ResultsScreen>>) {
@@ -104,23 +110,23 @@ fn spawn_results(
     injured: Res<Injured>,
     timer: Res<WorldTimer>,
 ) {
-    let elapsed = timer.0.elapsed().as_secs();
-    let minutes = elapsed / 60;
-    let seconds = elapsed % 60;
+    let elapsed_seconds = timer.0.elapsed().as_secs();
+    let minutes = elapsed_seconds / SECONDS_PER_MINUTE;
+    let seconds = elapsed_seconds % SECONDS_PER_MINUTE;
     commands
         .spawn((
             ResultsScreen,
             Node {
                 position_type: PositionType::Absolute,
-                width: Val::Percent(100.),
-                height: Val::Percent(100.),
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                row_gap: Val::Px(24.),
+                row_gap: Val::Px(HUD_ROW_GAP),
                 ..default()
             },
-            ZIndex(20),
+            ZIndex(RESULTS_Z_INDEX),
         ))
         .with_children(|parent| {
             parent.spawn(Text::new("day complete"));

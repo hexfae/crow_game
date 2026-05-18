@@ -7,18 +7,24 @@ use crate::{
     world::{Carryable, MissionPhase, UnderCover},
 };
 
-const SOAR_RADIUS: f32 = 10.;
-const SOAR_ALTITUDE: f32 = 10.;
+const SOAR_RADIUS: f32 = 10.0;
+const SOAR_ALTITUDE: f32 = 10.0;
 const SOAR_RATE: f32 = 1.0;
-const DIVE_ABORT_COOLDOWN_SECS: f32 = 5.;
-const DIVE_MISS_COOLDOWN_SECS: f32 = 8.;
-const DIVE_COOLDOWN_SECS: f32 = 12.;
-const DIVE_SPEED: f32 = 20.;
+
+const DIVE_ABORT_COOLDOWN_SECS: f32 = 5.0;
+const DIVE_MISS_COOLDOWN_SECS: f32 = 8.0;
+const DIVE_COOLDOWN_SECS: f32 = 12.0;
+const DIVE_SPEED: f32 = 20.0;
 const DIVE_ARRIVAL_THRESHOLD: f32 = 0.5;
-const COMMIT_DISTANCE: f32 = 3.0;
-const HIT_RADIUS: f32 = 0.5;
-const CLIMB_SPEED: f32 = 10.;
+/// Distance at which the hawk locks onto the target position even if the crow moves.
+const DIVE_COMMIT_DISTANCE: f32 = 3.0;
+const DIVE_HIT_RADIUS: f32 = 0.5;
+
+const CLIMB_SPEED: f32 = 10.0;
 const CLIMB_ARRIVAL_THRESHOLD: f32 = 0.5;
+
+/// A crow with at most this many flock neighbors is considered "isolated"
+/// and becomes a candidate target.
 const ISOLATION_NEIGHBOR_LIMIT: usize = 3;
 
 #[derive(Component)]
@@ -50,12 +56,6 @@ impl Plugin for HawkPlugin {
     }
 }
 
-fn despawn_hawks(mut commands: Commands, hawks: Query<Entity, With<Hawk>>) {
-    for entity in hawks {
-        commands.entity(entity).despawn();
-    }
-}
-
 fn spawn_hawk(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Hawk,
@@ -63,6 +63,12 @@ fn spawn_hawk(mut commands: Commands, asset_server: Res<AssetServer>) {
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/hawk/hawk.glb"))),
         Transform::from_scale(Vec3::splat(0.5)),
     ));
+}
+
+fn despawn_hawks(mut commands: Commands, hawks: Query<Entity, With<Hawk>>) {
+    for entity in hawks {
+        commands.entity(entity).despawn();
+    }
 }
 
 fn soar(hawks: Query<(&mut Transform, &mut HawkState), With<Hawk>>, time: Res<Time>) {
@@ -76,8 +82,9 @@ fn soar(hawks: Query<(&mut Transform, &mut HawkState), With<Hawk>>, time: Res<Ti
             SOAR_ALTITUDE,
             phase.cos() * SOAR_RADIUS,
         );
+        // Face along the tangent of the circular soar path.
         transform.look_at(Vec3::Y * SOAR_ALTITUDE, Vec3::Y);
-        transform.rotate_y(-PI / 2.);
+        transform.rotate_y(-PI / 2.0);
     }
 }
 
@@ -90,7 +97,7 @@ fn pick_target(
     >,
     time: Res<Time>,
 ) {
-    for (entity, transform, mut state) in hawks {
+    for (hawk_entity, hawk_transform, mut state) in hawks {
         let HawkState::Soaring { cooldown, .. } = &mut *state else {
             continue;
         };
@@ -99,8 +106,8 @@ fn pick_target(
             continue;
         }
 
-        let hawk_position = transform.translation;
-        let Some((target_entity, _, _, _)) = candidates
+        let hawk_position = hawk_transform.translation;
+        let target = candidates
             .iter()
             .filter(|(_, _, neighbors, crow_state)| {
                 neighbors.0.len() <= ISOLATION_NEIGHBOR_LIMIT
@@ -111,23 +118,26 @@ fn pick_target(
                             | CrowState::ReturningToRoost
                     )
             })
-            .min_by(
-                |(_, a_transform, a_neighbors, _), (_, b_transform, b_neighbors, _)| {
-                    a_neighbors.0.len().cmp(&b_neighbors.0.len()).then_with(|| {
+            .min_by(|(_, a_transform, a_neighbors, _), (_, b_transform, b_neighbors, _)| {
+                a_neighbors
+                    .0
+                    .len()
+                    .cmp(&b_neighbors.0.len())
+                    .then_with(|| {
                         a_transform
                             .translation
                             .distance_squared(hawk_position)
                             .total_cmp(&b_transform.translation.distance_squared(hawk_position))
                     })
-                },
-            )
-        else {
+            });
+
+        let Some((target_entity, _, _, _)) = target else {
             cooldown.reset();
             continue;
         };
 
         commands
-            .entity(entity)
+            .entity(hawk_entity)
             .insert(HawkState::diving(target_entity));
     }
 }
@@ -149,44 +159,41 @@ fn dive(
             continue;
         };
 
-        let target_pos = if let Some(pos) = *locked_position {
-            pos
+        let target_position = if let Some(locked) = *locked_position {
+            locked
         } else {
             let Ok((_, target_transform, target_state)) = crows.get(*target) else {
-                commands.entity(hawk_entity).insert(HawkState::climb_after(
-                    &hawk_transform,
-                    DIVE_ABORT_COOLDOWN_SECS,
-                ));
+                commands
+                    .entity(hawk_entity)
+                    .insert(HawkState::climb_after(&hawk_transform, DIVE_ABORT_COOLDOWN_SECS));
                 continue;
             };
             if under_cover.contains(*target) || !target_state.is_attackable() {
-                commands.entity(hawk_entity).insert(HawkState::climb_after(
-                    &hawk_transform,
-                    DIVE_ABORT_COOLDOWN_SECS,
-                ));
+                commands
+                    .entity(hawk_entity)
+                    .insert(HawkState::climb_after(&hawk_transform, DIVE_ABORT_COOLDOWN_SECS));
                 continue;
             }
             target_transform.translation
         };
 
-        let offset = target_pos - hawk_transform.translation;
+        let offset = target_position - hawk_transform.translation;
         let distance = offset.length();
 
         if distance < DIVE_ARRIVAL_THRESHOLD {
-            let Some((crow_entity, _, _)) = crows
+            let hit = crows
                 .iter()
                 .filter(|(_, _, crow_state)| crow_state.is_attackable())
                 .find(|(_, crow_transform, _)| {
                     crow_transform
                         .translation
                         .distance(hawk_transform.translation)
-                        < HIT_RADIUS
-                })
-            else {
-                commands.entity(hawk_entity).insert(HawkState::climb_after(
-                    &hawk_transform,
-                    DIVE_MISS_COOLDOWN_SECS,
-                ));
+                        < DIVE_HIT_RADIUS
+                });
+            let Some((crow_entity, _, _)) = hit else {
+                commands
+                    .entity(hawk_entity)
+                    .insert(HawkState::climb_after(&hawk_transform, DIVE_MISS_COOLDOWN_SECS));
                 continue;
             };
             commands
@@ -205,8 +212,8 @@ fn dive(
             continue;
         }
 
-        if locked_position.is_none() && distance < COMMIT_DISTANCE {
-            *locked_position = Some(target_pos);
+        if locked_position.is_none() && distance < DIVE_COMMIT_DISTANCE {
+            *locked_position = Some(target_position);
         }
 
         let direction = offset / distance;
@@ -245,11 +252,13 @@ fn climb(
 impl HawkState {
     fn soaring() -> Self {
         Self::Soaring {
-            phase: 0.,
+            phase: 0.0,
             cooldown: Timer::new(Duration::from_secs_f32(DIVE_COOLDOWN_SECS), TimerMode::Once),
         }
     }
 
+    /// Builds a `Climbing` state that returns to the soar ring along the
+    /// shortest horizontal path from `transform`.
     fn climb_after(transform: &Transform, cooldown_secs: f32) -> Self {
         let horizontal = -transform
             .translation

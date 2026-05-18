@@ -13,7 +13,16 @@ use crate::{
     world::{Carryable, Mobbable, Roost, Weight},
 };
 
+/// Vertical offset added to flock goals so crows hover above what they follow.
 const ALTITUDE_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 0.0);
+
+/// Click distance for targeting carryables, mobbables, and the roost.
+const TARGET_PICK_RADIUS: f32 = 1.0;
+
+const SPATIAL_CELL_SIZE: f32 = 4.0;
+/// Minimum squared distance used as the separation force denominator, preventing
+/// infinite repulsion when two crows occupy nearly the same position.
+const SEPARATION_DISTANCE_FLOOR_SQ: f32 = 0.01;
 
 pub struct FlockPlugin;
 
@@ -53,6 +62,7 @@ impl Plugin for FlockPlugin {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn on_direct(
     _: On<Start<Direct>>,
     mut commands: Commands,
@@ -63,90 +73,141 @@ fn on_direct(
     mobbables: Query<(&Transform, Entity, &Mobbable)>,
     roost: Single<&Transform, With<Roost>>,
 ) {
-    let Some(world_position) = cursor.world_position else {
+    let Some(target_position) = cursor.world_position else {
         return;
     };
     let mut rng = rand::rng();
-    let mut acknowledged = false;
-    if let Some((_, entity, weight)) = carryables
+    let acknowledged = if let Some((_, carryable_entity, weight)) = carryables
         .iter()
-        .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
+        .find(|(transform, _, _)| transform.translation.distance(target_position) < TARGET_PICK_RADIUS)
     {
-        let min_strength = free_crows
-            .iter()
-            .filter(|(_, state, species)| {
-                state.accepts_commands() && species.strength() >= weight.0
-            })
-            .map(|(_, _, s)| s.strength())
-            .reduce(f32::min);
-        if let Some(min) = min_strength
-            && let Some(chosen) = free_crows
-                .iter()
-                .filter(|(_, state, species)| {
-                    state.accepts_commands() && species.strength() == min
-                })
-                .map(|(e, _, _)| e)
-                .choose(&mut rng)
-            && let Ok((_, mut state, _)) = free_crows.get_mut(chosen)
-        {
-            *state = CrowState::GrabCarryable(entity);
-            acknowledged = true;
-        }
-    } else if let Some((_, entity, mobbable)) = mobbables
+        assign_carrier(&mut free_crows, carryable_entity, weight.0, &mut rng)
+    } else if let Some((_, mobbable_entity, mobbable)) = mobbables
         .iter()
-        .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
+        .find(|(transform, _, _)| transform.translation.distance(target_position) < TARGET_PICK_RADIUS)
     {
-        let mut candidates: Vec<(Entity, f32)> = free_crows
-            .iter()
-            .filter(|(_, state, _)| state.accepts_commands())
-            .map(|(e, _, s)| (e, s.strength()))
-            .collect();
-        candidates.sort_by(|a, b| {
-            a.1.partial_cmp(&b.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.index().cmp(&b.0.index()))
-        });
-        let mut selected: Vec<(Entity, f32)> = Vec::new();
-        let mut accumulated = 0.0;
-        for (e, s) in candidates {
-            if accumulated >= mobbable.minimum {
-                break;
-            }
-            selected.push((e, s));
-            accumulated += s;
-        }
-        let mut cut = 0;
-        while cut < selected.len() && accumulated - selected[cut].1 >= mobbable.minimum {
-            accumulated -= selected[cut].1;
-            cut += 1;
-        }
-        for (crow_entity, _) in &selected[cut..] {
-            if let Ok((_, mut state, _)) = free_crows.get_mut(*crow_entity) {
-                *state = CrowState::Mobbing(entity);
-                acknowledged = true;
-            }
-        }
-    } else if roost.translation.distance(world_position) < 1. {
-        for (_, mut state, _) in &mut carrying_crows {
-            if state.accepts_commands() {
-                *state = CrowState::ReturningToRoost;
-                acknowledged = true;
-            }
-        }
+        assign_mob(&mut free_crows, mobbable_entity, mobbable.minimum)
+    } else if roost.translation.distance(target_position) < TARGET_PICK_RADIUS {
+        send_carriers_home(&mut carrying_crows)
     } else {
-        for (_, mut state, _) in free_crows.iter_mut().chain(carrying_crows.iter_mut()) {
-            if state.accepts_commands() && !matches!(*state, CrowState::GrabCarryable(_)) {
-                *state = CrowState::SeekTarget(world_position);
-                acknowledged = true;
-            }
-        }
-    }
+        send_all_to(&mut free_crows, &mut carrying_crows, target_position)
+    };
+
     if acknowledged {
         commands.trigger(PlaySfx {
             sound: Sfx::Command,
-            position: world_position,
+            position: target_position,
         });
     }
+}
+
+/// Picks the weakest crow capable of carrying `weight` and assigns the grab order.
+/// Random tie-break among equally-weak candidates.
+fn assign_carrier(
+    free_crows: &mut Query<(Entity, &mut CrowState, &Species), Without<Carrying>>,
+    carryable: Entity,
+    weight: f32,
+    rng: &mut impl rand::Rng,
+) -> bool {
+    let min_strength = free_crows
+        .iter()
+        .filter(|(_, state, species)| state.accepts_commands() && species.strength() >= weight)
+        .map(|(_, _, species)| species.strength())
+        .reduce(f32::min);
+    let Some(min_strength) = min_strength else {
+        return false;
+    };
+    let Some(chosen) = free_crows
+        .iter()
+        .filter(|(_, state, species)| {
+            state.accepts_commands() && species.strength() == min_strength
+        })
+        .map(|(entity, _, _)| entity)
+        .choose(rng)
+    else {
+        return false;
+    };
+    let Ok((_, mut state, _)) = free_crows.get_mut(chosen) else {
+        return false;
+    };
+    *state = CrowState::GrabCarryable(carryable);
+    true
+}
+
+/// Sends the weakest available crows to mob `target`, just barely meeting
+/// `required_strength` (avoiding overcommitting strong crows).
+fn assign_mob(
+    free_crows: &mut Query<(Entity, &mut CrowState, &Species), Without<Carrying>>,
+    target: Entity,
+    required_strength: f32,
+) -> bool {
+    let mut candidates: Vec<(Entity, f32)> = free_crows
+        .iter()
+        .filter(|(_, state, _)| state.accepts_commands())
+        .map(|(entity, _, species)| (entity, species.strength()))
+        .collect();
+    candidates.sort_by(|(left_entity, left_strength), (right_entity, right_strength)| {
+        left_strength
+            .total_cmp(right_strength)
+            .then_with(|| left_entity.index().cmp(&right_entity.index()))
+    });
+
+    let mut selected: Vec<(Entity, f32)> = Vec::new();
+    let mut total_strength = 0.0;
+    for candidate in candidates {
+        if total_strength >= required_strength {
+            break;
+        }
+        total_strength += candidate.1;
+        selected.push(candidate);
+    }
+
+    // Drop weak crows from the front while the remaining set still meets the
+    // requirement — they were only added to bootstrap the sum.
+    let mut drop_from_front = 0;
+    while drop_from_front < selected.len()
+        && total_strength - selected[drop_from_front].1 >= required_strength
+    {
+        total_strength -= selected[drop_from_front].1;
+        drop_from_front += 1;
+    }
+
+    let mut acknowledged = false;
+    for (crow_entity, _) in &selected[drop_from_front..] {
+        if let Ok((_, mut state, _)) = free_crows.get_mut(*crow_entity) {
+            *state = CrowState::Mobbing(target);
+            acknowledged = true;
+        }
+    }
+    acknowledged
+}
+
+fn send_carriers_home(
+    carrying_crows: &mut Query<(Entity, &mut CrowState, &Species), With<Carrying>>,
+) -> bool {
+    let mut acknowledged = false;
+    for (_, mut state, _) in carrying_crows {
+        if state.accepts_commands() {
+            *state = CrowState::ReturningToRoost;
+            acknowledged = true;
+        }
+    }
+    acknowledged
+}
+
+fn send_all_to(
+    free_crows: &mut Query<(Entity, &mut CrowState, &Species), Without<Carrying>>,
+    carrying_crows: &mut Query<(Entity, &mut CrowState, &Species), With<Carrying>>,
+    target: Vec3,
+) -> bool {
+    let mut acknowledged = false;
+    for (_, mut state, _) in free_crows.iter_mut().chain(carrying_crows.iter_mut()) {
+        if state.accepts_commands() && !matches!(*state, CrowState::GrabCarryable(_)) {
+            *state = CrowState::SeekTarget(target);
+            acknowledged = true;
+        }
+    }
+    acknowledged
 }
 
 fn on_recall(
@@ -249,29 +310,31 @@ fn boids_steer(
             CrowState::ReturningToRoost | CrowState::RecoveringFromInjury => roost.translation,
             CrowState::CapturedBy(_) => continue,
             CrowState::Mobbing(entity) => {
-                if let Ok(mobbable) = mobbables.get(*entity) {
-                    mobbable.translation
-                } else {
+                let Ok(target) = mobbables.get(*entity) else {
                     continue;
-                }
+                };
+                target.translation
             }
             CrowState::GrabCarryable(entity) => {
-                if let Ok(carryable) = carryables.get(*entity) {
-                    carryable.translation
-                } else {
+                let Ok(target) = carryables.get(*entity) else {
                     continue;
-                }
+                };
+                target.translation
             }
         };
-        let (mut separation_force, mut neighbor_velocity_sum, mut neighbor_position_sum) =
-            (Vec3::ZERO, Vec3::ZERO, Vec3::ZERO);
+
+        let mut separation_force = Vec3::ZERO;
+        let mut neighbor_velocity_sum = Vec3::ZERO;
+        let mut neighbor_position_sum = Vec3::ZERO;
         for &neighbor in &neighbors.0 {
             let Ok((other_transform, other_velocity)) = others.get(neighbor) else {
                 continue;
             };
             let offset_from_neighbor = transform.translation - other_transform.translation;
-            separation_force +=
-                offset_from_neighbor / offset_from_neighbor.length_squared().max(0.01);
+            separation_force += offset_from_neighbor
+                / offset_from_neighbor
+                    .length_squared()
+                    .max(SEPARATION_DISTANCE_FLOOR_SQ);
             neighbor_velocity_sum += other_velocity.0;
             neighbor_position_sum += other_transform.translation;
         }
@@ -313,7 +376,7 @@ impl Default for SpatialGrid {
     fn default() -> Self {
         Self {
             cells: HashMap::new(),
-            cell_size: 4.0,
+            cell_size: SPATIAL_CELL_SIZE,
         }
     }
 }

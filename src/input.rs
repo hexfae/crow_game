@@ -52,27 +52,29 @@ fn update_cursor(
     mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
     ui_interactions: Query<&Interaction>,
 ) {
-    if let Ok(mut ctx) = egui_contexts.single_mut()
-        && ctx.get_mut().wants_pointer_input()
-    {
-        cursor.world_position = None;
-        return;
-    }
-    if ui_interactions
+    let egui_wants_pointer = egui_contexts
+        .single_mut()
+        .is_ok_and(|mut ctx| ctx.get_mut().wants_pointer_input());
+    let ui_wants_pointer = ui_interactions
         .iter()
-        .any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed))
-    {
+        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed));
+    if egui_wants_pointer || ui_wants_pointer {
         cursor.world_position = None;
         return;
     }
-    cursor.world_position = (|| {
-        let window = windows.single().ok()?;
-        let screen_position = window.cursor_position()?;
-        let (camera, camera_transform) = cameras.single().ok()?;
-        let ray = camera
-            .viewport_to_world(camera_transform, screen_position)
-            .ok()?;
-        let distance = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))?;
-        Some(ray.get_point(distance))
-    })();
+    cursor.world_position = pointer_world_position(&windows, &cameras);
+}
+
+fn pointer_world_position(
+    windows: &Query<&Window>,
+    cameras: &Query<(&Camera, &GlobalTransform)>,
+) -> Option<Vec3> {
+    let window = windows.single().ok()?;
+    let screen_position = window.cursor_position()?;
+    let (camera, camera_transform) = cameras.single().ok()?;
+    let ray = camera
+        .viewport_to_world(camera_transform, screen_position)
+        .ok()?;
+    let distance = ray.intersect_plane(Vec3::ZERO, InfinitePlane3d::new(Vec3::Y))?;
+    Some(ray.get_point(distance))
 }

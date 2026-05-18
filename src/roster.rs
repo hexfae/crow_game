@@ -8,6 +8,16 @@ use crate::{
 const REBUILD_INTERVAL: f32 = 0.25;
 const PORTRAIT_SIZE: f32 = 56.0;
 const PORTRAIT_TOTAL_HEIGHT: f32 = 78.0;
+const PORTRAIT_PADDING: f32 = 5.0;
+const PORTRAIT_ICON_SIZE: f32 = PORTRAIT_SIZE - 2.0 * PORTRAIT_PADDING;
+const PORTRAIT_BORDER: f32 = 2.0;
+const PORTRAIT_INNER_PADDING: f32 = 3.0;
+const PORTRAIT_ROW_GAP: f32 = 4.0;
+const PORTRAIT_GAP: f32 = 6.0;
+const PORTRAIT_LABEL_FONT: f32 = 11.0;
+const ROSTER_EDGE_INSET: f32 = 16.0;
+const ROSTER_MAX_HEIGHT_PERCENT: f32 = 90.0;
+const ROSTER_MAX_WIDTH_PERCENT: f32 = 95.0;
 
 pub struct RosterPlugin;
 
@@ -25,6 +35,30 @@ struct PortraitTextures {
 
 #[derive(Resource)]
 struct RebuildTimer(Timer);
+
+/// Priority for sorting portraits — lower comes first, so the most urgent
+/// statuses sit at the top of the roster.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum Priority {
+    Leader = 0,
+    Captured = 1,
+    Mobbing = 2,
+    Grabbing = 3,
+    Carrying = 4,
+    Seeking = 5,
+    Injured = 6,
+    Idle = 7,
+}
+
+struct PortraitData {
+    crow: Entity,
+    species: Species,
+    is_leader: bool,
+    is_captured: bool,
+    priority: Priority,
+    label: &'static str,
+}
 
 impl Plugin for RosterPlugin {
     fn build(&self, app: &mut App) {
@@ -48,13 +82,13 @@ fn spawn_roster(mut commands: Commands) {
     commands
         .spawn(Node {
             position_type: PositionType::Absolute,
-            width: Val::Percent(100.),
-            height: Val::Percent(100.),
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
             justify_content: JustifyContent::FlexEnd,
             align_items: AlignItems::FlexEnd,
             padding: UiRect {
-                right: Val::Px(16.),
-                bottom: Val::Px(16.),
+                right: Val::Px(ROSTER_EDGE_INSET),
+                bottom: Val::Px(ROSTER_EDGE_INSET),
                 ..default()
             },
             ..default()
@@ -63,12 +97,12 @@ fn spawn_roster(mut commands: Commands) {
             outer.spawn((
                 Roster,
                 Node {
-                    max_height: Val::Percent(90.),
-                    max_width: Val::Percent(95.),
+                    max_height: Val::Percent(ROSTER_MAX_HEIGHT_PERCENT),
+                    max_width: Val::Percent(ROSTER_MAX_WIDTH_PERCENT),
                     flex_direction: FlexDirection::Column,
                     flex_wrap: FlexWrap::WrapReverse,
-                    column_gap: Val::Px(6.),
-                    row_gap: Val::Px(6.),
+                    column_gap: Val::Px(PORTRAIT_GAP),
+                    row_gap: Val::Px(PORTRAIT_GAP),
                     ..default()
                 },
             ));
@@ -89,16 +123,26 @@ fn rebuild(
         return;
     }
 
-    let mut entries: Vec<(Entity, Species, bool, bool, u8, &'static str)> = crows
+    let mut entries: Vec<PortraitData> = crows
         .iter()
         .map(|(entity, state, species, is_leader)| {
             let (priority, label) = classify(state, is_leader);
-            let is_captured = matches!(state, Some(CrowState::CapturedBy(_)));
-            (entity, *species, is_leader, is_captured, priority, label)
+            PortraitData {
+                crow: entity,
+                species: *species,
+                is_leader,
+                is_captured: matches!(state, Some(CrowState::CapturedBy(_))),
+                priority,
+                label,
+            }
         })
         .collect();
-    entries.sort_by_key(|(entity, species, _, _, priority, _)| {
-        (*priority, -species_rank(*species), entity.index())
+    entries.sort_by_key(|entry| {
+        (
+            entry.priority as u8,
+            -species_rank(entry.species),
+            entry.crow.index(),
+        )
     });
 
     for portrait in &old_portraits {
@@ -106,55 +150,59 @@ fn rebuild(
     }
 
     commands.entity(*roster).with_children(|parent| {
-        for (entity, species, is_leader, is_captured, _, label) in entries {
-            let icon = match species {
-                Species::Carrion => textures.carrion.clone(),
-                Species::Raven => textures.raven.clone(),
-            };
-            let border = if is_captured {
-                Color::srgb(0.9, 0.15, 0.15)
-            } else if is_leader {
-                Color::srgb(1.0, 0.6, 0.2)
-            } else {
-                Color::srgba(0.0, 0.0, 0.0, 0.6)
-            };
-            parent
-                .spawn((
-                    PortraitFor(entity),
-                    Button,
-                    Node {
-                        width: Val::Px(PORTRAIT_SIZE),
-                        height: Val::Px(PORTRAIT_TOTAL_HEIGHT),
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::SpaceBetween,
-                        padding: UiRect::all(Val::Px(3.0)),
-                        row_gap: Val::Px(4.0),
-                        border: UiRect::all(Val::Px(2.0)),
-                        ..default()
-                    },
-                    BorderColor::all(border),
-                    BackgroundColor(Color::srgba(0.05, 0.05, 0.05, 0.7)),
-                ))
-                .with_children(|portrait| {
-                    portrait.spawn((
-                        ImageNode::new(icon),
-                        Node {
-                            width: Val::Px(PORTRAIT_SIZE - 10.),
-                            height: Val::Px(PORTRAIT_SIZE - 10.),
-                            ..default()
-                        },
-                    ));
-                    portrait.spawn((
-                        Text::new(label),
-                        TextFont {
-                            font_size: 11.0,
-                            ..default()
-                        },
-                    ));
-                });
+        for entry in entries {
+            spawn_portrait(parent, &entry, &textures);
         }
     });
+}
+
+fn spawn_portrait(parent: &mut ChildSpawnerCommands, entry: &PortraitData, textures: &PortraitTextures) {
+    let icon = match entry.species {
+        Species::Carrion => textures.carrion.clone(),
+        Species::Raven => textures.raven.clone(),
+    };
+    let border = if entry.is_captured {
+        Color::srgb(0.9, 0.15, 0.15)
+    } else if entry.is_leader {
+        Color::srgb(1.0, 0.6, 0.2)
+    } else {
+        Color::srgba(0.0, 0.0, 0.0, 0.6)
+    };
+    parent
+        .spawn((
+            PortraitFor(entry.crow),
+            Button,
+            Node {
+                width: Val::Px(PORTRAIT_SIZE),
+                height: Val::Px(PORTRAIT_TOTAL_HEIGHT),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceBetween,
+                padding: UiRect::all(Val::Px(PORTRAIT_INNER_PADDING)),
+                row_gap: Val::Px(PORTRAIT_ROW_GAP),
+                border: UiRect::all(Val::Px(PORTRAIT_BORDER)),
+                ..default()
+            },
+            BorderColor::all(border),
+            BackgroundColor(Color::srgba(0.05, 0.05, 0.05, 0.7)),
+        ))
+        .with_children(|portrait| {
+            portrait.spawn((
+                ImageNode::new(icon),
+                Node {
+                    width: Val::Px(PORTRAIT_ICON_SIZE),
+                    height: Val::Px(PORTRAIT_ICON_SIZE),
+                    ..default()
+                },
+            ));
+            portrait.spawn((
+                Text::new(entry.label),
+                TextFont {
+                    font_size: PORTRAIT_LABEL_FONT,
+                    ..default()
+                },
+            ));
+        });
 }
 
 fn handle_clicks(
@@ -170,21 +218,21 @@ fn handle_clicks(
     *focus.into_inner() = CameraFocus::Following(portrait.0);
 }
 
-fn classify(state: Option<&CrowState>, is_leader: bool) -> (u8, &'static str) {
+fn classify(state: Option<&CrowState>, is_leader: bool) -> (Priority, &'static str) {
     if is_leader {
-        return (0, "leader");
+        return (Priority::Leader, "leader");
     }
     let Some(state) = state else {
-        return (7, "idle");
+        return (Priority::Idle, "idle");
     };
     match state {
-        CrowState::CapturedBy(_) => (1, "caught"),
-        CrowState::Mobbing(_) => (2, "mob"),
-        CrowState::GrabCarryable(_) => (3, "grab"),
-        CrowState::ReturningToRoost => (4, "carry"),
-        CrowState::SeekTarget(_) => (5, "seek"),
-        CrowState::RecoveringFromInjury => (6, "hurt"),
-        CrowState::FollowLeader => (7, "idle"),
+        CrowState::CapturedBy(_) => (Priority::Captured, "caught"),
+        CrowState::Mobbing(_) => (Priority::Mobbing, "mob"),
+        CrowState::GrabCarryable(_) => (Priority::Grabbing, "grab"),
+        CrowState::ReturningToRoost => (Priority::Carrying, "carry"),
+        CrowState::SeekTarget(_) => (Priority::Seeking, "seek"),
+        CrowState::RecoveringFromInjury => (Priority::Injured, "hurt"),
+        CrowState::FollowLeader => (Priority::Idle, "idle"),
     }
 }
 

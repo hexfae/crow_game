@@ -1,4 +1,5 @@
 #![expect(clippy::type_complexity)]
+
 use bevy::prelude::*;
 
 use crate::{
@@ -25,15 +26,15 @@ fn main() {
             DefaultPlugins,
             AudioPlugin,
             CameraPlugin,
+            CatPlugin,
             CrowPlugin,
             FlockPlugin,
+            HawkPlugin,
             HudPlugin,
             InputPlugin,
             ParticlesPlugin,
             RosterPlugin,
             WorldPlugin,
-            CatPlugin,
-            HawkPlugin,
         ))
         .run();
 }

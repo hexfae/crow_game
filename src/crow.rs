@@ -11,8 +11,30 @@ use crate::{
 };
 
 const LEADER_SPEED: f32 = 4.0;
+const LEADER_SPAWN_HEIGHT: f32 = 3.0;
+const LEADER_LIGHT_INTENSITY: f32 = 200_000.0;
+const LEADER_LIGHT_OFFSET: Vec3 = Vec3::new(0.0, 4.0, 0.0);
+
 const CARRION_COUNT: usize = 8;
 const RAVEN_COUNT: usize = 2;
+
+const SPAWN_AREA_HALF_EXTENT: f32 = 5.0;
+const SPAWN_MIN_HEIGHT: f32 = 5.0;
+const SPAWN_MAX_HEIGHT: f32 = 6.0;
+const INITIAL_SPEED: f32 = 2.0;
+
+/// Per-second decay rate for blending current velocity toward desired velocity.
+const VELOCITY_SMOOTHING_RATE: f32 = 5.0;
+/// Squared-speed below which we don't reorient the crow toward its velocity.
+const FACING_EPSILON_SQUARED: f32 = 0.001;
+/// Squared-speed equivalent for the leader's manual control.
+const LEADER_FACING_EPSILON_SQUARED: f32 = 0.01;
+
+/// Pickup, deposit, and recovery all happen within this radius of their target.
+const PICKUP_RADIUS: f32 = 0.5;
+const ROOST_RADIUS: f32 = 1.0;
+
+const INJURY_RECOVERY_SECONDS: u64 = 5;
 
 #[derive(Component)]
 pub struct Crow;
@@ -104,16 +126,19 @@ impl Plugin for CrowPlugin {
 }
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let crow_scene =
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb"));
     let mut rng = rand::rng();
+
     for (species, count) in [
         (Species::Carrion, CARRION_COUNT),
         (Species::Raven, RAVEN_COUNT),
     ] {
         for _ in 0..count {
             let position = Vec3::new(
-                rng.random_range(-5.0..5.),
-                rng.random_range(5.0..6.),
-                rng.random_range(-5.0..5.),
+                rng.random_range(-SPAWN_AREA_HALF_EXTENT..SPAWN_AREA_HALF_EXTENT),
+                rng.random_range(SPAWN_MIN_HEIGHT..SPAWN_MAX_HEIGHT),
+                rng.random_range(-SPAWN_AREA_HALF_EXTENT..SPAWN_AREA_HALF_EXTENT),
             );
             let direction = Vec3::new(
                 rng.random_range(-1.0..1.0),
@@ -126,16 +151,15 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 Crow,
                 species,
                 CrowState::default(),
-                Velocity(direction * 2.0),
+                Velocity(direction * INITIAL_SPEED),
                 DesiredVelocity::default(),
                 FlockNeighbors::default(),
                 Transform::from_translation(position).with_scale(Vec3::splat(species.scale())),
-                SceneRoot(
-                    asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
-                ),
+                SceneRoot(crow_scene.clone()),
             ));
         }
     }
+
     commands
         .spawn((
             Crow,
@@ -144,10 +168,8 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             Player,
             Velocity::default(),
             Transform::from_scale(Vec3::splat(Species::Carrion.scale()))
-                .with_translation(Vec3::Y * 3.),
-            SceneRoot(
-                asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/crow/crow.glb")),
-            ),
+                .with_translation(Vec3::Y * LEADER_SPAWN_HEIGHT),
+            SceneRoot(crow_scene),
             actions!(Player[
                 (
                     Action::<MoveLeader>::new(),
@@ -184,10 +206,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .with_child((
             PointLight {
                 color: Color::srgb(1.0, 0.0, 0.0),
-                intensity: 200_000.0,
+                intensity: LEADER_LIGHT_INTENSITY,
                 ..default()
             },
-            Transform::from_translation(Vec3::Y * 4.).looking_at(Vec3::ZERO, Vec3::Y),
+            Transform::from_translation(LEADER_LIGHT_OFFSET).looking_at(Vec3::ZERO, Vec3::Y),
         ));
 }
 
@@ -196,16 +218,15 @@ fn integrate(
     mut crows: Query<(&DesiredVelocity, &mut Velocity, &mut Transform, &CrowState), With<Crow>>,
 ) {
     let dt = time.delta_secs();
-    let smoothing = (5.0 * dt).min(1.0);
+    let blend = (VELOCITY_SMOOTHING_RATE * dt).min(1.0);
     for (desired, mut velocity, mut transform, state) in &mut crows {
-        if let CrowState::CapturedBy(_) = state {
+        if matches!(state, CrowState::CapturedBy(_)) {
             continue;
         }
-        velocity.0 = velocity.0.lerp(desired.0, smoothing);
+        velocity.0 = velocity.0.lerp(desired.0, blend);
         transform.translation += velocity.0 * dt;
-        if velocity.0.length_squared() > 0.001 {
-            let direction = velocity.0.normalize();
-            transform.look_to(direction, Vec3::Y);
+        if velocity.0.length_squared() > FACING_EPSILON_SQUARED {
+            transform.look_to(velocity.0.normalize(), Vec3::Y);
         }
     }
 }
@@ -215,10 +236,13 @@ fn pickup(
     crows: Query<(&mut CrowState, &Transform, Entity)>,
     carryables: Query<&Transform, With<Carryable>>,
 ) {
-    for (mut state, transform, crow_entity) in crows {
+    for (mut state, crow_transform, crow_entity) in crows {
         if let CrowState::GrabCarryable(carryable_entity) = *state
-            && let Ok(carryable) = carryables.get(carryable_entity)
-            && carryable.translation.distance(transform.translation) < 0.5
+            && let Ok(carryable_transform) = carryables.get(carryable_entity)
+            && carryable_transform
+                .translation
+                .distance(crow_transform.translation)
+                < PICKUP_RADIUS
         {
             commands
                 .entity(crow_entity)
@@ -230,7 +254,7 @@ fn pickup(
             *state = CrowState::ReturningToRoost;
             commands.trigger(PlaySfx {
                 sound: Sfx::Pickup,
-                position: transform.translation,
+                position: crow_transform.translation,
             });
         }
     }
@@ -243,10 +267,10 @@ fn deposit_in_roost(
     mut score: ResMut<Score>,
 ) {
     for (transform, carrying, mut state, entity) in crows {
-        if let CrowState::CapturedBy(_) = *state {
+        if matches!(*state, CrowState::CapturedBy(_)) {
             continue;
         }
-        if transform.translation.distance(roost.translation) < 1.0 {
+        if transform.translation.distance(roost.translation) < ROOST_RADIUS {
             commands.entity(entity).remove::<Carrying>();
             commands.entity(carrying.0).despawn();
             *state = CrowState::FollowLeader;
@@ -266,19 +290,20 @@ fn recover_from_injury(
     time: Res<Time>,
 ) {
     for (entity, transform, state, mut injured_timer) in crows {
-        if transform.translation.distance(roost.translation) < 1.0 {
-            if !matches!(state, CrowState::RecoveringFromInjury) {
-                commands
-                    .entity(entity)
-                    .insert(CrowState::RecoveringFromInjury);
-            }
-            injured_timer.0.tick(time.delta());
-            if injured_timer.0.just_finished() {
-                commands
-                    .entity(entity)
-                    .remove::<InjuredTimer>()
-                    .insert(CrowState::FollowLeader);
-            }
+        if transform.translation.distance(roost.translation) >= ROOST_RADIUS {
+            continue;
+        }
+        if !matches!(state, CrowState::RecoveringFromInjury) {
+            commands
+                .entity(entity)
+                .insert(CrowState::RecoveringFromInjury);
+        }
+        injured_timer.0.tick(time.delta());
+        if injured_timer.0.just_finished() {
+            commands
+                .entity(entity)
+                .remove::<InjuredTimer>()
+                .insert(CrowState::FollowLeader);
         }
     }
 }
@@ -310,9 +335,8 @@ fn move_leader(
     let (mut transform, mut velocity) = leader.into_inner();
     velocity.0 = fire.value * LEADER_SPEED;
     transform.translation += velocity.0 * time.delta_secs();
-    if velocity.0.length_squared() > 0.01 {
-        let direction = velocity.0.normalize();
-        transform.look_to(direction, Vec3::Y);
+    if velocity.0.length_squared() > LEADER_FACING_EPSILON_SQUARED {
+        transform.look_to(velocity.0.normalize(), Vec3::Y);
     }
 }
 
@@ -335,6 +359,9 @@ impl CrowState {
 
 impl Default for InjuredTimer {
     fn default() -> Self {
-        Self(Timer::new(Duration::from_secs(5), TimerMode::Once))
+        Self(Timer::new(
+            Duration::from_secs(INJURY_RECOVERY_SECONDS),
+            TimerMode::Once,
+        ))
     }
 }

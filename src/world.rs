@@ -22,6 +22,21 @@ const DAY_SKY: LinearRgba = LinearRgba::new(0.3, 0.5, 0.8, 1.0);
 const DUSK_SKY: LinearRgba = LinearRgba::new(0.7, 0.25, 0.1, 1.0);
 const NIGHT_SKY: LinearRgba = LinearRgba::new(0.005, 0.01, 0.05, 1.0);
 
+const GROUND_HALF_EXTENT: f32 = 7.0;
+const PLAYFIELD_HALF_EXTENT: f32 = 5.0;
+const ROOST_POSITION: Vec3 = Vec3::new(-4.5, 0.25, -4.5);
+const ROOST_DIMENSIONS: Vec3 = Vec3::new(2.0, 0.5, 2.0);
+const COVER_POSITION: Vec3 = Vec3::new(-5.0, 8.0, -5.0);
+const COVER_DIMENSIONS: Vec3 = Vec3::new(5.0, 0.5, 5.0);
+
+const LIGHT_CARRYABLE_COUNT: usize = 6;
+const LIGHT_CARRYABLE_DIMENSIONS: Vec3 = Vec3::new(2.0, 0.2, 0.5);
+const LIGHT_CARRYABLE_WEIGHT: f32 = 1.0;
+
+const HEAVY_CARRYABLE_COUNT: usize = 2;
+const HEAVY_CARRYABLE_DIMENSIONS: Vec3 = Vec3::new(0.7, 0.2, 0.7);
+const HEAVY_CARRYABLE_WEIGHT: f32 = 3.0;
+
 #[derive(Component)]
 pub struct Carryable;
 
@@ -89,7 +104,10 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(7., 7.)))),
+        Mesh3d(meshes.add(Plane3d::new(
+            Vec3::Y,
+            Vec2::splat(GROUND_HALF_EXTENT),
+        ))),
         MeshMaterial3d(materials.add(Color::WHITE)),
     ));
     commands.spawn((
@@ -99,19 +117,19 @@ fn setup(
             color: Color::from(DAY_LIGHT),
             ..default()
         },
-        Transform::from_xyz(1., 1., -1.).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(1.0, 1.0, -1.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     commands.spawn((
         Roost,
-        Mesh3d(meshes.add(Cuboid::new(2., 0.5, 2.))),
+        Mesh3d(meshes.add(Cuboid::from_size(ROOST_DIMENSIONS))),
         MeshMaterial3d(materials.add(Color::srgb_u8(150, 75, 0))),
-        Transform::from_xyz(-4.5, 0.25, -4.5),
+        Transform::from_translation(ROOST_POSITION),
     ));
     commands.spawn((
         Cover,
-        Mesh3d(meshes.add(Cuboid::new(5., 0.5, 5.))),
+        Mesh3d(meshes.add(Cuboid::from_size(COVER_DIMENSIONS))),
         MeshMaterial3d(materials.add(Color::WHITE)),
-        Transform::from_xyz(-5., 8.0, -5.),
+        Transform::from_translation(COVER_POSITION),
     ));
 
     spawn_carryables(&mut commands, &mut meshes, &mut materials);
@@ -123,28 +141,39 @@ fn spawn_carryables(
     materials: &mut Assets<StandardMaterial>,
 ) {
     let mut rng = rand::rng();
-    for _ in 0..6 {
-        let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
-        let rotation = rng.random_range(0.0..PI * 2.0);
+    let light_material = materials.add(Color::srgb_u8(255, 255, 0));
+    let heavy_material = materials.add(Color::srgb_u8(120, 120, 120));
+    let light_mesh = meshes.add(Cuboid::from_size(LIGHT_CARRYABLE_DIMENSIONS));
+    let heavy_mesh = meshes.add(Cuboid::from_size(HEAVY_CARRYABLE_DIMENSIONS));
+
+    for _ in 0..LIGHT_CARRYABLE_COUNT {
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(2., 0.2, 0.5))),
-            MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 0))),
+            Mesh3d(light_mesh.clone()),
+            MeshMaterial3d(light_material.clone()),
             Carryable,
-            Weight(1.0),
-            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
+            Weight(LIGHT_CARRYABLE_WEIGHT),
+            random_carryable_transform(&mut rng),
         ));
     }
-    for _ in 0..2 {
-        let position = Vec3::new(rng.random_range(-5.0..5.), 0., rng.random_range(-5.0..5.));
-        let rotation = rng.random_range(0.0..PI * 2.0);
+    for _ in 0..HEAVY_CARRYABLE_COUNT {
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.7, 0.2, 0.7))),
-            MeshMaterial3d(materials.add(Color::srgb_u8(120, 120, 120))),
+            Mesh3d(heavy_mesh.clone()),
+            MeshMaterial3d(heavy_material.clone()),
             Carryable,
-            Weight(3.0),
-            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(rotation)),
+            Weight(HEAVY_CARRYABLE_WEIGHT),
+            random_carryable_transform(&mut rng),
         ));
     }
+}
+
+fn random_carryable_transform(rng: &mut impl rand::Rng) -> Transform {
+    let position = Vec3::new(
+        rng.random_range(-PLAYFIELD_HALF_EXTENT..PLAYFIELD_HALF_EXTENT),
+        0.0,
+        rng.random_range(-PLAYFIELD_HALF_EXTENT..PLAYFIELD_HALF_EXTENT),
+    );
+    let yaw = rng.random_range(0.0..PI * 2.0);
+    Transform::from_translation(position).with_rotation(Quat::from_rotation_y(yaw))
 }
 
 fn update_cover(
@@ -153,13 +182,14 @@ fn update_cover(
     covers: Query<(&GlobalTransform, &Aabb), With<Cover>>,
 ) {
     for (crow_entity, crow_transform) in &crows {
-        let under = covers.iter().any(|(cover_xf, aabb)| {
-            let center_xz = cover_xf.translation().xz() + Vec2::new(aabb.center.x, aabb.center.z);
-            let he_xz = Vec2::new(aabb.half_extents.x, aabb.half_extents.z);
-            let d = (crow_transform.translation.xz() - center_xz).abs();
-            d.cmple(he_xz).all()
+        let crow_xz = crow_transform.translation.xz();
+        let is_under_cover = covers.iter().any(|(cover_transform, aabb)| {
+            let center_xz = cover_transform.translation().xz() + aabb.center.xz();
+            let half_extents_xz = aabb.half_extents.xz();
+            let delta = (crow_xz - center_xz).abs();
+            delta.cmple(half_extents_xz).all()
         });
-        if under {
+        if is_under_cover {
             commands.entity(crow_entity).insert(UnderCover);
         } else {
             commands.entity(crow_entity).try_remove::<UnderCover>();
@@ -202,17 +232,17 @@ fn tint_sun(
         )
     };
     let transition_start = boundary.saturating_sub(window);
-    let t = if elapsed <= transition_start {
+    let progress = if elapsed <= transition_start {
         0.0
     } else {
         ((elapsed - transition_start).as_secs_f32() / window.as_secs_f32()).clamp(0.0, 1.0)
     };
-    sun.color = Color::from(from_light.mix(&to_light, t));
-    clear_color.0 = Color::from(from_sky.mix(&to_sky, t));
+    sun.color = Color::from(from_light.mix(&to_light, progress));
+    clear_color.0 = Color::from(from_sky.mix(&to_sky, progress));
 }
 
-fn count_injured(injuries: Query<(), Added<InjuredTimer>>, mut injured: ResMut<Injured>) {
-    injured.0 += injuries.iter().count() as u32;
+fn count_injured(new_injuries: Query<(), Added<InjuredTimer>>, mut injured: ResMut<Injured>) {
+    injured.0 += new_injuries.iter().count() as u32;
 }
 
 fn on_restart(
@@ -270,7 +300,7 @@ fn pass_time(
 
 impl Mobbable {
     pub fn minimum(minimum: f32) -> Self {
-        Self { minimum, time: 0. }
+        Self { minimum, time: 0.0 }
     }
 }
 
@@ -299,15 +329,11 @@ impl WorldTimer {
 
 impl Display for MissionPhase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                MissionPhase::Day => "Day",
-                MissionPhase::Dusk => "Dusk",
-                MissionPhase::Night => "Night",
-                MissionPhase::Results => "Results",
-            }
-        )
+        f.write_str(match self {
+            MissionPhase::Day => "Day",
+            MissionPhase::Dusk => "Dusk",
+            MissionPhase::Night => "Night",
+            MissionPhase::Results => "Results",
+        })
     }
 }

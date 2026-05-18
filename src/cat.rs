@@ -10,9 +10,30 @@ use crate::{
     world::{Carryable, MissionPhase, Mobbable},
 };
 
-const CAT_HOME: Vec3 = Vec3::new(5., 0., -5.);
+const CAT_HOME: Vec3 = Vec3::new(5.0, 0.0, -5.0);
+const CAT_HOME_FACING_RADIANS: f32 = PI * 0.75;
+const CAT_SCALE: f32 = 0.6;
+const CAT_MOB_THRESHOLD: f32 = 4.0;
 
-const SPEED: f32 = 5.0;
+const WALK_SPEED: f32 = 5.0;
+const WALK_ARRIVAL_THRESHOLD: f32 = 0.1;
+
+const BOREDOM_INTERVAL_SECONDS: f32 = 1.0;
+const WANDER_CHANCE: f64 = 0.5;
+const WANDER_MIN: f32 = -1.5;
+const WANDER_MAX: f32 = 5.5;
+
+const POUNCE_DISTANCE: f32 = 2.0;
+/// Crow position used to model the pinned crow held in front of the cat after pouncing.
+const POUNCE_HOLD_OFFSET: f32 = 0.6;
+
+const MOB_INTIMIDATION_RADIUS: f32 = 6.0;
+const MOB_OVERPOWER_RADIUS: f32 = 4.0;
+/// Within this radius from a mobbed target, a crow contributes full strength.
+const MOB_FULL_STRENGTH_PLATEAU: f32 = 1.0;
+const MOB_REQUIRED_SECONDS: f32 = 2.0;
+
+const INJURE_PINNED_SECONDS: u64 = 10;
 
 #[derive(Component)]
 struct Cat;
@@ -56,11 +77,14 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn((
         Cat,
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/cat/cat.glb"))),
-        Boredom(Timer::from_seconds(1., TimerMode::Repeating)),
-        Mobbable::minimum(4.),
-        Transform::from_scale(Vec3::splat(0.6))
+        Boredom(Timer::from_seconds(
+            BOREDOM_INTERVAL_SECONDS,
+            TimerMode::Repeating,
+        )),
+        Mobbable::minimum(CAT_MOB_THRESHOLD),
+        Transform::from_scale(Vec3::splat(CAT_SCALE))
             .with_translation(CAT_HOME)
-            .with_rotation(Quat::from_rotation_y(PI * 0.75)),
+            .with_rotation(Quat::from_rotation_y(CAT_HOME_FACING_RADIANS)),
     ));
 }
 
@@ -73,8 +97,8 @@ fn reset_cat(
             .entity(entity)
             .remove::<(PouncedOn, InjureCrowTimer, Scared, WalkTo)>();
         transform.translation = CAT_HOME;
-        transform.rotation = Quat::from_rotation_y(PI * 0.75);
-        mobbable.time = 0.;
+        transform.rotation = Quat::from_rotation_y(CAT_HOME_FACING_RADIANS);
+        mobbable.time = 0.0;
     }
 }
 
@@ -82,7 +106,7 @@ fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, 
     for (entity, mut transform, walk_to) in cats {
         let offset = walk_to.0 - transform.translation;
         let distance = offset.length();
-        if distance < 0.1 {
+        if distance < WALK_ARRIVAL_THRESHOLD {
             commands
                 .entity(entity)
                 .remove::<WalkTo>()
@@ -90,7 +114,7 @@ fn walk(mut commands: Commands, cats: Query<(Entity, &mut Transform, &WalkTo)>, 
             continue;
         }
         let direction = offset / distance;
-        let step = (SPEED * time.delta_secs()).min(distance);
+        let step = (WALK_SPEED * time.delta_secs()).min(distance);
         transform.translation += direction * step;
         transform.look_to(direction, Vec3::Y);
     }
@@ -104,9 +128,13 @@ fn experience_boredom(
     let mut rng = rand::rng();
     for (entity, mut boredom) in cats {
         boredom.0.tick(time.delta());
-        if boredom.0.just_finished() && rng.random_bool(0.5) {
-            let position = Vec3::new(rng.random_range(-1.5..5.5), 0., rng.random_range(-1.5..5.5));
-            commands.entity(entity).insert(WalkTo(position));
+        if boredom.0.just_finished() && rng.random_bool(WANDER_CHANCE) {
+            let destination = Vec3::new(
+                rng.random_range(WANDER_MIN..WANDER_MAX),
+                0.0,
+                rng.random_range(WANDER_MIN..WANDER_MAX),
+            );
+            commands.entity(entity).insert(WalkTo(destination));
         }
     }
 }
@@ -127,26 +155,30 @@ fn pounce(
     >,
 ) {
     for (cat_entity, cat_transform, mobbable) in cats {
-        let nearby_strength: f32 = crows
+        let mob_strength: f32 = crows
             .iter()
             .filter(|(_, _, state, _, _, _)| state.is_attackable())
             .map(|(_, transform, _, _, _, species)| {
                 let distance = transform.translation.distance(cat_transform.translation);
-                mob_contribution(distance, 6., *species)
+                mob_contribution(distance, MOB_INTIMIDATION_RADIUS, *species)
             })
             .sum();
-        if nearby_strength >= mobbable.minimum {
+        if mob_strength >= mobbable.minimum {
             continue;
         }
-        for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired, _) in &mut crows
+        for (crow_entity, mut crow_transform, mut state, mut velocity, mut desired, _) in
+            &mut crows
         {
-            if let CrowState::CapturedBy(_) | CrowState::RecoveringFromInjury = *state {
+            if matches!(
+                *state,
+                CrowState::CapturedBy(_) | CrowState::RecoveringFromInjury
+            ) {
                 continue;
             }
             if cat_transform
                 .translation
                 .distance(crow_transform.translation)
-                > 2.
+                > POUNCE_DISTANCE
             {
                 continue;
             }
@@ -155,9 +187,9 @@ fn pounce(
                 .insert((PouncedOn(crow_entity), InjureCrowTimer::default()))
                 .try_remove::<WalkTo>();
             *state = CrowState::CapturedBy(cat_entity);
-            crow_transform.translation =
-                cat_transform.translation + (Vec3::Y + *cat_transform.forward()) * 0.6;
-            crow_transform.rotate_local_z(PI / 2.);
+            crow_transform.translation = cat_transform.translation
+                + (Vec3::Y + *cat_transform.forward()) * POUNCE_HOLD_OFFSET;
+            crow_transform.rotate_local_z(PI / 2.0);
             velocity.0 = Vec3::ZERO;
             desired.0 = Vec3::ZERO;
             commands.trigger(PlaySfx {
@@ -181,38 +213,38 @@ fn get_mobbed(
     time: Res<Time>,
 ) {
     for (cat_entity, cat_transform, mut mobbable, pounced_on) in cats {
-        let nearby_strength: f32 = crows
+        let mob_strength: f32 = crows
             .iter()
             .filter(|(_, state, _)| state.is_attackable())
             .map(|(transform, _, species)| {
                 let distance = transform.translation.distance(cat_transform.translation);
-                mob_contribution(distance, 4., *species)
+                mob_contribution(distance, MOB_OVERPOWER_RADIUS, *species)
             })
             .sum();
-        if nearby_strength >= mobbable.minimum {
+        if mob_strength >= mobbable.minimum {
             mobbable.time += time.delta_secs();
         } else {
-            mobbable.time = (mobbable.time - time.delta_secs()).max(0.);
+            mobbable.time = (mobbable.time - time.delta_secs()).max(0.0);
         }
-        if mobbable.time >= 2. {
-            mobbable.time = 0.;
-            let new_state = if carrying_query.contains(pounced_on.0) {
-                CrowState::ReturningToRoost
-            } else {
-                CrowState::FollowLeader
-            };
-            commands.entity(pounced_on.0).insert(new_state);
-            commands
-                .entity(cat_entity)
-                .remove::<PouncedOn>()
-                .insert(Scared)
-                .insert(WalkTo(CAT_HOME));
-            for (_, mut state, _) in crows
-                .iter_mut()
-                .filter(|(_, state, _)| **state == CrowState::Mobbing(cat_entity))
-            {
-                *state = CrowState::FollowLeader;
-            }
+        if mobbable.time < MOB_REQUIRED_SECONDS {
+            continue;
+        }
+        mobbable.time = 0.0;
+        let next_state = if carrying_query.contains(pounced_on.0) {
+            CrowState::ReturningToRoost
+        } else {
+            CrowState::FollowLeader
+        };
+        commands.entity(pounced_on.0).insert(next_state);
+        commands
+            .entity(cat_entity)
+            .remove::<PouncedOn>()
+            .insert((Scared, WalkTo(CAT_HOME)));
+        for (_, mut state, _) in crows
+            .iter_mut()
+            .filter(|(_, state, _)| **state == CrowState::Mobbing(cat_entity))
+        {
+            *state = CrowState::FollowLeader;
         }
     }
 }
@@ -223,39 +255,47 @@ fn injure_pounced_crow(
     crows: Query<(&Transform, Option<&Carrying>), With<Crow>>,
     time: Res<Time>,
 ) {
-    for (cat_entity, mut injure_crow_timer, pounced_on) in cats {
-        injure_crow_timer.0.tick(time.delta());
-        if injure_crow_timer.0.just_finished() {
-            commands
-                .entity(cat_entity)
-                .remove::<(InjureCrowTimer, PouncedOn)>();
-            commands
-                .entity(pounced_on.0)
-                .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
-                .try_remove::<Carrying>();
-            if let Ok((crow_transform, carrying)) = crows.get(pounced_on.0) {
-                if let Some(carrying) = carrying {
-                    commands
-                        .entity(carrying.0)
-                        .remove_parent_in_place()
-                        .insert(Carryable);
-                }
-                commands.trigger(SpawnParticles {
-                    kind: Particle::FeatherBurst,
-                    position: crow_transform.translation,
-                });
-            }
+    for (cat_entity, mut injure_timer, pounced_on) in cats {
+        injure_timer.0.tick(time.delta());
+        if !injure_timer.0.just_finished() {
+            continue;
         }
+        commands
+            .entity(cat_entity)
+            .remove::<(InjureCrowTimer, PouncedOn)>();
+        commands
+            .entity(pounced_on.0)
+            .insert((InjuredTimer::default(), CrowState::ReturningToRoost))
+            .try_remove::<Carrying>();
+        let Ok((crow_transform, carrying)) = crows.get(pounced_on.0) else {
+            continue;
+        };
+        if let Some(carrying) = carrying {
+            commands
+                .entity(carrying.0)
+                .remove_parent_in_place()
+                .insert(Carryable);
+        }
+        commands.trigger(SpawnParticles {
+            kind: Particle::FeatherBurst,
+            position: crow_transform.translation,
+        });
     }
 }
 
+/// Strength a crow at `distance` contributes toward intimidating a target,
+/// scaling linearly from full strength at `MOB_FULL_STRENGTH_PLATEAU` down to
+/// zero at `radius` (and clamped to zero beyond that).
 fn mob_contribution(distance: f32, radius: f32, species: Species) -> f32 {
-    const PLATEAU: f32 = 1.0;
-    species.strength() * ((radius - distance) / (radius - PLATEAU)).clamp(0., 1.)
+    let falloff = ((radius - distance) / (radius - MOB_FULL_STRENGTH_PLATEAU)).clamp(0.0, 1.0);
+    species.strength() * falloff
 }
 
 impl Default for InjureCrowTimer {
     fn default() -> Self {
-        Self(Timer::new(Duration::from_secs(10), TimerMode::Once))
+        Self(Timer::new(
+            Duration::from_secs(INJURE_PINNED_SECONDS),
+            TimerMode::Once,
+        ))
     }
 }

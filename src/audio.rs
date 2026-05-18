@@ -3,6 +3,8 @@ use bevy_seedling::prelude::*;
 
 use crate::crow::{Crow, CrowState};
 
+const DISTRESS_DELAY_SECONDS: f32 = 1.0;
+
 #[derive(Resource)]
 struct SoundBank {
     distress_caw: Handle<AudioSample>,
@@ -18,8 +20,6 @@ struct DistressAudio;
 
 #[derive(Component)]
 struct DistressDelay(Timer);
-
-const DISTRESS_DELAY_SECONDS: f32 = 1.0;
 
 #[derive(Clone, Copy)]
 pub enum Sfx {
@@ -90,7 +90,8 @@ fn manage_distress_state(
 ) {
     for (crow, state, children) in &crows {
         let audio_child = children
-            .and_then(|c| c.iter().find(|&child| distress_audio.contains(child)));
+            .and_then(|children| children.iter().find(|&child| distress_audio.contains(child)));
+
         if matches!(state, CrowState::CapturedBy(_)) {
             if audio_child.is_none() && !delays.contains(crow) {
                 commands.entity(crow).insert(DistressDelay(Timer::from_seconds(
@@ -98,12 +99,13 @@ fn manage_distress_state(
                     TimerMode::Once,
                 )));
             }
-        } else {
-            if let Some(audio) = audio_child {
-                commands.entity(audio).despawn();
-            }
-            commands.entity(crow).try_remove::<DistressDelay>();
+            continue;
         }
+
+        if let Some(audio) = audio_child {
+            commands.entity(audio).despawn();
+        }
+        commands.entity(crow).try_remove::<DistressDelay>();
     }
 }
 
@@ -115,14 +117,17 @@ fn tick_distress_delay(
 ) {
     for (crow, mut delay) in &mut delayed {
         delay.0.tick(time.delta());
-        if delay.0.just_finished() {
-            commands.entity(crow).with_child((
+        if !delay.0.just_finished() {
+            continue;
+        }
+        commands
+            .entity(crow)
+            .remove::<DistressDelay>()
+            .with_child((
                 DistressAudio,
                 SamplePlayer::new(bank.distress_caw.clone()).looping(),
                 Transform::default(),
                 sample_effects![SpatialBasicNode::default()],
             ));
-            commands.entity(crow).remove::<DistressDelay>();
-        }
     }
 }

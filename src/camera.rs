@@ -14,6 +14,8 @@ const ROTATION_DECAY: f32 = 5.0;
 const FOV_DECAY: f32 = 5.0;
 const ZOOM_SENSITIVITY: f32 = 0.1;
 const PAN_SPEED: f32 = 6.0;
+const INITIAL_ZOOM: f32 = 0.5;
+const ZOOM_MIDPOINT: f32 = 0.5;
 
 #[derive(Clone, Copy)]
 struct ZoomView {
@@ -45,10 +47,7 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(PostStartup, setup)
-            .add_systems(
-                Update,
-                (track_focus, derive_from_zoom, drive_rig).chain(),
-            )
+            .add_systems(Update, (track_focus, derive_from_zoom, drive_rig).chain())
             .add_systems(OnExit(MissionPhase::Results), request_snap)
             .add_observer(on_zoom)
             .add_observer(on_pan);
@@ -57,7 +56,7 @@ impl Plugin for CameraPlugin {
 
 #[derive(Component)]
 pub struct CameraRig {
-    pub follow: Follow,
+    pub follow: Entity,
     pub zoom: f32,
     pub arm_offset: Vec3,
     pub desired_rotation: Quat,
@@ -66,11 +65,6 @@ pub struct CameraRig {
     pub rotation_decay: f32,
     pub fov_decay: f32,
     pub snap: bool,
-}
-
-pub enum Follow {
-    Entity(Entity),
-    Fixed(Vec3),
 }
 
 #[derive(Component)]
@@ -87,15 +81,14 @@ fn setup(mut commands: Commands, leader: Single<&Transform, With<LeaderCrow>>) {
         ))
         .id();
 
-    let zoom = 0.5;
-    let (arm, rotation, fov) = arm_from_zoom(zoom);
+    let (arm, rotation, fov) = arm_from_zoom(INITIAL_ZOOM);
 
     commands.spawn((
         Camera3d::default(),
         Transform::from_translation(arm).with_rotation(rotation),
         CameraRig {
-            follow: Follow::Entity(focus),
-            zoom,
+            follow: focus,
+            zoom: INITIAL_ZOOM,
             arm_offset: arm,
             desired_rotation: rotation,
             desired_fov: fov,
@@ -111,24 +104,28 @@ fn track_focus(
     focus: Single<(&mut Transform, &CameraFocus)>,
     transforms: Query<&Transform, Without<CameraFocus>>,
 ) {
-    let (mut focus_xf, mode) = focus.into_inner();
-    if let CameraFocus::Following(entity) = mode
+    let (mut focus_transform, focus_mode) = focus.into_inner();
+    if let CameraFocus::Following(entity) = focus_mode
         && let Ok(target) = transforms.get(*entity)
     {
-        focus_xf.translation = target.translation;
+        focus_transform.translation = target.translation;
     }
 }
 
 fn arm_from_zoom(zoom: f32) -> (Vec3, Quat, f32) {
-    let (from, to, segment_t) = if zoom < 0.5 {
-        (STREET_VIEW, CHASE_VIEW, zoom * 2.0)
+    let (from, to, segment_progress) = if zoom < ZOOM_MIDPOINT {
+        (STREET_VIEW, CHASE_VIEW, zoom / ZOOM_MIDPOINT)
     } else {
-        (CHASE_VIEW, BIRDSEYE_VIEW, (zoom - 0.5) * 2.0)
+        (
+            CHASE_VIEW,
+            BIRDSEYE_VIEW,
+            (zoom - ZOOM_MIDPOINT) / (1.0 - ZOOM_MIDPOINT),
+        )
     };
-    let t = EaseFunction::SmoothStep.sample_unchecked(segment_t.clamp(0., 1.));
-    let arm = from.arm.lerp(to.arm, t);
-    let aim = from.aim.lerp(to.aim, t);
-    let fov = from.fov.lerp(to.fov, t);
+    let eased = EaseFunction::SmoothStep.sample_unchecked(segment_progress.clamp(0.0, 1.0));
+    let arm = from.arm.lerp(to.arm, eased);
+    let aim = from.aim.lerp(to.aim, eased);
+    let fov = from.fov.lerp(to.fov, eased);
     let rotation = Transform::from_translation(arm)
         .looking_at(aim, Vec3::Y)
         .rotation;
@@ -149,16 +146,10 @@ fn drive_rig(
 ) {
     let (mut transform, mut rig, mut projection) = camera.into_inner();
 
-    let origin = match rig.follow {
-        Follow::Entity(entity) => {
-            let Ok(target) = transforms.get(entity) else {
-                return;
-            };
-            target.translation
-        }
-        Follow::Fixed(position) => position,
+    let Ok(target) = transforms.get(rig.follow) else {
+        return;
     };
-    let desired_position = origin + rig.arm_offset;
+    let desired_position = target.translation + rig.arm_offset;
     let dt = time.delta_secs();
 
     if rig.snap {
@@ -188,7 +179,7 @@ fn request_snap(mut rig: Single<&mut CameraRig>) {
 }
 
 fn on_zoom(fire: On<Fire<Zoom>>, mut rig: Single<&mut CameraRig>) {
-    rig.zoom = (rig.zoom - fire.value * ZOOM_SENSITIVITY).clamp(0., 1.);
+    rig.zoom = (rig.zoom - fire.value * ZOOM_SENSITIVITY).clamp(0.0, 1.0);
 }
 
 fn on_pan(
