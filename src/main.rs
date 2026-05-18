@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use crate::{
     audio::AudioPlugin, camera::CameraPlugin, cat::CatPlugin, crow::CrowPlugin,
     flock::FlockPlugin, hawk::HawkPlugin, hud::HudPlugin, input::InputPlugin,
-    particles::ParticlesPlugin, world::WorldPlugin,
+    particles::ParticlesPlugin, roster::RosterPlugin, world::WorldPlugin,
 };
 
 mod audio;
@@ -16,6 +16,7 @@ mod hawk;
 mod hud;
 mod input;
 mod particles;
+mod roster;
 mod world;
 
 fn main() {
@@ -29,6 +30,7 @@ fn main() {
             HudPlugin,
             InputPlugin,
             ParticlesPlugin,
+            RosterPlugin,
             WorldPlugin,
             CatPlugin,
             HawkPlugin,

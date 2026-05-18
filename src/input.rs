@@ -50,9 +50,17 @@ fn update_cursor(
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     mut egui_contexts: Query<&mut EguiContext, With<PrimaryEguiContext>>,
+    ui_interactions: Query<&Interaction>,
 ) {
     if let Ok(mut ctx) = egui_contexts.single_mut()
         && ctx.get_mut().wants_pointer_input()
+    {
+        cursor.world_position = None;
+        return;
+    }
+    if ui_interactions
+        .iter()
+        .any(|i| matches!(i, Interaction::Hovered | Interaction::Pressed))
     {
         cursor.world_position = None;
         return;

@@ -79,9 +79,12 @@ pub enum CameraFocus {
     Following(Entity),
 }
 
-fn setup(mut commands: Commands, leader: Single<Entity, With<LeaderCrow>>) {
+fn setup(mut commands: Commands, leader: Single<&Transform, With<LeaderCrow>>) {
     let focus = commands
-        .spawn((CameraFocus::Following(*leader), Transform::default()))
+        .spawn((
+            CameraFocus::Free,
+            Transform::from_translation(leader.translation),
+        ))
         .id();
 
     let zoom = 0.5;
