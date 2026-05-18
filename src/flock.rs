@@ -96,13 +96,35 @@ fn on_direct(
         .iter()
         .find(|(transform, _, _)| transform.translation.distance(world_position) < 1.)
     {
-        for (_, mut crow, _) in free_crows
-            .iter_mut()
+        let mut candidates: Vec<(Entity, f32)> = free_crows
+            .iter()
             .filter(|(_, state, _)| state.accepts_commands())
-            .sample(&mut rng, mobbable.minimum.ceil() as usize)
-        {
-            *crow = CrowState::Mobbing(entity);
-            acknowledged = true;
+            .map(|(e, _, s)| (e, s.strength()))
+            .collect();
+        candidates.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.index().cmp(&b.0.index()))
+        });
+        let mut selected: Vec<(Entity, f32)> = Vec::new();
+        let mut accumulated = 0.0;
+        for (e, s) in candidates {
+            if accumulated >= mobbable.minimum {
+                break;
+            }
+            selected.push((e, s));
+            accumulated += s;
+        }
+        let mut cut = 0;
+        while cut < selected.len() && accumulated - selected[cut].1 >= mobbable.minimum {
+            accumulated -= selected[cut].1;
+            cut += 1;
+        }
+        for (crow_entity, _) in &selected[cut..] {
+            if let Ok((_, mut state, _)) = free_crows.get_mut(*crow_entity) {
+                *state = CrowState::Mobbing(entity);
+                acknowledged = true;
+            }
         }
     } else if roost.translation.distance(world_position) < 1. {
         for (_, mut state, _) in &mut carrying_crows {
